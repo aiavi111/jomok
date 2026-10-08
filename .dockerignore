@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.venv
+venv
+data
+demo_output
+tests
+branding
+.git
+__pycache__
+.pytest_cache
+*.log
+.DS_Store

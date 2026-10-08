@@ -1,0 +1,18 @@
+{
+  "name": "Айгүл",
+  "age": 5,
+  "gender": "girl",
+  "appearance": {
+    "hair": "",
+    "eyes": "",
+    "clothes": ""
+  },
+  "likes": ["Животные", "Музыка"],
+  "traits": ["caring", "funny"],
+  "place": "issykkul",
+  "value": "animals",
+  "islamic": true,
+  "headscarf": false,
+  "language": "ky",
+  "dedication": "Сүйүктүү Айгүлүбүзгө — ата-энең жана чоң энең"
+}

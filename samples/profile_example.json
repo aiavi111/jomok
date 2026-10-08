@@ -1,0 +1,18 @@
+{
+  "name": "Айдар",
+  "age": 6,
+  "gender": "boy",
+  "appearance": {
+    "hair": "короткие чёрные волосы",
+    "eyes": "карие глаза",
+    "clothes": "синяя жилетка с орнаментом и белая рубашка"
+  },
+  "likes": ["Лошади", "Рисование"],
+  "traits": ["kind", "curious", "brave"],
+  "place": "yurt",
+  "value": "kindness",
+  "islamic": false,
+  "headscarf": false,
+  "language": "ru",
+  "dedication": "Нашему любимому Айдару — от мамы, папы и бабушки Гүлзат с любовью"
+}
