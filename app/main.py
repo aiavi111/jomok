@@ -72,6 +72,9 @@ async def amain() -> int:
     service = OrderService(settings, db, text_provider, image_provider, notifier,
                            make_payment_provider(settings), secret)
     service.recover()
+    service.resume_paid()
+    if runtime:
+        runtime.service = service            # кнопки «Подтвердить/Отклонить» в чате владельца
     await asyncio.to_thread(service.cleanup)
 
     app = create_app(settings, db, service, bot_info)

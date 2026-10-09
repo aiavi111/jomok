@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 
 ACTIVE_STATUSES = ("queued", "writing", "drawing", "assembling")
+PAYMENT_STATUSES = ("awaiting_payment", "payment_review")      # ждём оплату / проверяем чек
+BLOCKING_STATUSES = ACTIVE_STATUSES + PAYMENT_STATUSES          # у человека может быть только один такой заказ
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -34,6 +36,10 @@ CREATE TABLE IF NOT EXISTS orders(
     finished_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, created_at);
+CREATE TABLE IF NOT EXISTS settings(
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS feedback(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id TEXT NOT NULL,
@@ -48,8 +54,10 @@ CREATE TABLE IF NOT EXISTS feedback(
 
 _ORDER_COLUMNS = {
     "status", "title", "paid", "payment_charge_id", "error", "error_detail", "delivered",
-    "files_deleted", "finished_at", "profile_json",
+    "files_deleted", "finished_at", "profile_json", "receipt_at", "pay_note", "paid_at",
 }
+# колонки, добавленные после первой версии: старая база на сервере получит их при запуске
+_ORDER_MIGRATIONS = {"receipt_at": "REAL", "pay_note": "TEXT", "paid_at": "REAL"}
 
 
 class Database:
@@ -62,6 +70,10 @@ class Database:
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(SCHEMA)
+            have = {row["name"] for row in self._conn.execute("PRAGMA table_info(orders)")}
+            for column, kind in _ORDER_MIGRATIONS.items():
+                if column not in have:
+                    self._conn.execute(f"ALTER TABLE orders ADD COLUMN {column} {kind}")
 
     def close(self) -> None:
         with self._lock:
@@ -92,12 +104,13 @@ class Database:
         )
 
     # ------------------------------------------------------------------ заказы
-    def create_order(self, order_id: str, user_id: int, profile_json: str, *, paid: bool = False) -> None:
+    def create_order(self, order_id: str, user_id: int, profile_json: str, *, paid: bool = False,
+                     status: str = "queued") -> None:
         now = time.time()
         self._exec(
             """INSERT INTO orders(id, user_id, status, profile_json, paid, created_at, updated_at)
                VALUES(?,?,?,?,?,?,?)""",
-            (order_id, user_id, "queued", profile_json, 1 if paid else 0, now, now),
+            (order_id, user_id, status, profile_json, 1 if paid else 0, now, now),
         )
 
     def get_order(self, order_id: str) -> sqlite3.Row | None:
@@ -112,20 +125,20 @@ class Database:
         self._exec(f"UPDATE orders SET {sets} WHERE id=?", (*fields.values(), order_id))
 
     def active_order(self, user_id: int) -> sqlite3.Row | None:
-        marks = ",".join("?" * len(ACTIVE_STATUSES))
+        marks = ",".join("?" * len(BLOCKING_STATUSES))
         return self._one(
             f"SELECT * FROM orders WHERE user_id=? AND status IN ({marks}) ORDER BY created_at DESC LIMIT 1",
-            (user_id, *ACTIVE_STATUSES),
+            (user_id, *BLOCKING_STATUSES),
         )
 
     def count_orders_since(self, user_id: int, since: float, *, include_errors: bool) -> int:
         sql = "SELECT COUNT(*) FROM orders WHERE user_id=? AND created_at>=?"
         if not include_errors:
-            sql += " AND status!='error'"
+            sql += " AND status NOT IN ('error','cancelled')"
         return self._one(sql, (user_id, since))[0]
 
     def oldest_counted_since(self, user_id: int, since: float) -> float | None:
-        row = self._one("SELECT MIN(created_at) FROM orders WHERE user_id=? AND created_at>=? AND status!='error'",
+        row = self._one("SELECT MIN(created_at) FROM orders WHERE user_id=? AND created_at>=? AND status NOT IN ('error','cancelled')",
                         (user_id, since))
         return row[0] if row else None
 
@@ -137,14 +150,43 @@ class Database:
         marks = ",".join("?" * len(ACTIVE_STATUSES))
         with self._lock:
             cur = self._conn.execute(
-                f"UPDATE orders SET status='error', error=?, error_detail=?, updated_at=? WHERE status IN ({marks})",
+                f"UPDATE orders SET status='error', error=?, error_detail=?, updated_at=? WHERE status IN ({marks}) AND paid=0",
                 (message, detail, time.time(), *ACTIVE_STATUSES),
             )
             return cur.rowcount
 
+    def unfinished_paid(self) -> list[sqlite3.Row]:
+        marks = ",".join("?" * len(ACTIVE_STATUSES))
+        return self._all(f"SELECT * FROM orders WHERE status IN ({marks}) AND paid=1", ACTIVE_STATUSES)
+
     def orders_with_files_older_than(self, ts: float) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM orders WHERE created_at<? AND files_deleted=0 AND status NOT IN "
-                         "('queued','writing','drawing','assembling')", (ts,))
+                         "('queued','writing','drawing','assembling','awaiting_payment','payment_review')", (ts,))
+
+    # ------------------------------------------------------------------ оплата и настройки
+    def orders_with_status(self, status: str, *, limit: int = 100) -> list[sqlite3.Row]:
+        order = "receipt_at" if status == "payment_review" else "created_at"
+        return self._all(f"SELECT * FROM orders WHERE status=? ORDER BY {order} ASC LIMIT ?", (status, limit))
+
+    def recent_paid(self, limit: int = 10) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM orders WHERE paid_at IS NOT NULL ORDER BY paid_at DESC LIMIT ?", (limit,))
+
+    def count_paid_since(self, since: float) -> int:
+        return self._one("SELECT COUNT(*) FROM orders WHERE paid_at IS NOT NULL AND paid_at>=?", (since,))[0]
+
+    def unpaid_older_than(self, ts: float) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM orders WHERE status='awaiting_payment' AND created_at<?", (ts,))
+
+    def get_user(self, user_id: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM users WHERE id=?", (user_id,))
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self._one("SELECT value FROM settings WHERE key=?", (key,))
+        return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._exec("INSERT INTO settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                   (key, value))
 
     # ------------------------------------------------------------------ отзывы
     def upsert_feedback(self, order_id: str, user_id: int, rating: int | None, comment: str,

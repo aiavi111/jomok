@@ -25,6 +25,11 @@ class AuthError(AppError):
     code = "auth"
 
 
+class ForbiddenError(AppError):
+    status = 403
+    code = "forbidden"
+
+
 class NotFoundError(AppError):
     status = 404
     code = "not_found"

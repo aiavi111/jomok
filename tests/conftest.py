@@ -85,6 +85,8 @@ class FakeNotifier:
         self.books: list[tuple] = []
         self.admin_books: list[tuple] = []
         self.admin_texts: list[str] = []
+        self.payments: list[tuple] = []
+        self.user_texts: list[tuple] = []
 
     async def send_book(self, user_id, pdf_path, filename, caption) -> bool:
         self.books.append((user_id, Path(pdf_path), filename, caption))
@@ -95,6 +97,12 @@ class FakeNotifier:
 
     async def notify_admin(self, text: str) -> None:
         self.admin_texts.append(text)
+
+    async def notify_payment(self, order_id, receipt_path, text) -> None:
+        self.payments.append((order_id, Path(receipt_path), text))
+
+    async def notify_user(self, user_id, text) -> None:
+        self.user_texts.append((user_id, text))
 
 
 class Env:

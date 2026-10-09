@@ -82,6 +82,9 @@
     send: '<path d="M4 12l16-8-6 16-3-6.5L4 12z"/>',
     refresh: '<path d="M19 8a7.5 7.5 0 0 0-13-2L4.5 8M4.5 4v4h4M5 16a7.5 7.5 0 0 0 13 2l1.5-2M19.5 20v-4h-4"/>',
     warn: '<path d="M12 4l9 16H3L12 4zM12 10v4.5M12 17.2v.1"/>',
+    clip: '<path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 17a1.6 1.6 0 0 1-2.3-2.3L15 7.5"/>',
+    gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>',
+    upload: '<path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19.5h14"/>',
   };
   function icon(name, cls) {
     return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
@@ -223,6 +226,7 @@
     a: freshAnswers(), photo: null, photoUrl: null,
     orderId: null, order: null, pollId: 0, pollFails: 0, stage: 0, tipTimer: null, tipIndex: 0,
     fb: { rating: null, would_pay: null, comment: '', sent: false },
+    adminTab: 'checks', admin: null, adminTimer: null, payTimer: null, payId: 0,
   };
 
   const opts = () => S.cfg.options;
@@ -237,6 +241,9 @@
     clearInterval(S.tipTimer);
     S.tipTimer = null;
     clearTimeout(S.autoTimer);
+    clearInterval(S.adminTimer);
+    S.adminTimer = null;
+    S.payId += 1;
   }
 
   /* ===================================================================== экраны-заглушки */
@@ -297,7 +304,7 @@
       ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(c.privacy_warning) + '</span></div>' : '';
     const priceLine = c.free_in_test
       ? 'Книга стоит <b>' + esc(c.price_text) + '</b>. Сейчас тест — <b>бесплатно</b> 🎉 Осталось ' + left + ' из ' + c.limits.books_per_day + ' на сегодня.'
-      : 'Цена книги — <b>' + esc(c.price_text) + '</b> 💛';
+      : 'Цена книги — <b>' + esc(c.price_text) + '</b>. Оплата переводом по QR-коду 💛';
     const rail = EXAMPLE.map((x) => x.cover
       ? '<article class="ex cover-ex"><img src="' + x.img + '" alt="' + esc(x.alt) + '" width="232" height="232" loading="lazy"><p>' + esc(x.title) + '<small>' + esc(x.sub) + '</small></p></article>'
       : '<article class="ex"><img src="' + x.img + '" alt="' + esc(x.alt) + '" width="232" height="232" loading="lazy"><p>' + esc(x.text) + '</p></article>').join('');
@@ -325,7 +332,8 @@
       '<p class="price">' + priceLine + '</p></div>' +
       '<footer class="footer">' +
       (left < 1 ? '<p class="form-error" role="alert">Лимит на сегодня исчерпан. Приходите завтра — малыша ждёт новая сказка 🌙</p>' : '') +
-      '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + '>✨ Создать сказку</button></footer>' +
+      '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + '>✨ Создать сказку</button>' +
+      (c.is_admin ? '<button type="button" class="btn ghost small admin-link" data-act="open-admin">' + icon('gear') + 'Админка</button>' : '') + '</footer>' +
       '</section>';
     window.scrollTo(0, 0);
   }
@@ -713,6 +721,7 @@
 
   function onBackButton() {
     if (S.screen === 'wizard') back();
+    else if (S.screen === 'admin') { haptic.tap(); showWelcome(); }
   }
 
   function pick(el) {
@@ -761,6 +770,7 @@
       }
       haptic.ok();
       S.cfg.limits.remaining_today = Math.max(0, S.cfg.limits.remaining_today - 1);
+      if (res.status === 'awaiting_payment') { showPay(res.order_id); return; }
       showWait(res.order_id);
     } catch (e) {
       if (e.status === 409 && e.data && e.data.order_id) { showWait(e.data.order_id); return; }
@@ -834,6 +844,8 @@
     if (token !== S.pollId) return;
     if (order) {
       S.order = order;
+      if (order.status === 'awaiting_payment' || order.status === 'payment_review') { showPay(order.id, order); return; }
+      if (order.status === 'cancelled') { await refreshConfig(); showWelcome(); return; }
       if (order.status === 'done') { showResult(order); return; }
       if (order.status === 'error') { showOrderError(order); return; }
       updateWait(order);
@@ -1060,6 +1072,289 @@
     startWizard(keep);
   }
 
+  /* ===================================================================== оплата по QR */
+  function ago(ts) {
+    if (!ts) return '';
+    const m = Math.max(0, Math.round((Date.now() / 1000 - ts) / 60));
+    if (m < 1) return 'только что';
+    if (m < 60) return m + ' мин назад';
+    const h = Math.round(m / 60);
+    return h < 24 ? h + ' ч назад' : Math.round(h / 24) + ' дн. назад';
+  }
+
+  function confirmDialog(text, onYes) {
+    if (tg && tg.showConfirm) { try { tg.showConfirm(text, (ok) => { if (ok) onYes(); }); return; } catch (e) { /* обычный диалог */ } }
+    if (window.confirm(text)) onYes();
+  }
+
+  async function showPay(orderId, order) {
+    leaveScreen();
+    S.screen = 'pay';
+    S.orderId = orderId;
+    S.pollId += 1;                      // опрос экрана ожидания больше не нужен
+    const token = S.payId;
+    setBackButton(false);
+    setHeader('bg_color');
+    if (!order) {
+      try { order = await api('/api/orders/' + encodeURIComponent(orderId)); }
+      catch (e) { if (S.screen === 'pay' && token === S.payId) showFatal(e, () => boot()); return; }
+      if (S.screen !== 'pay' || token !== S.payId) return;
+    }
+    if (!order.payment) {
+      if (order.status === 'cancelled') { await refreshConfig(); showWelcome(); } else showWait(orderId);
+      return;
+    }
+    S.order = order;
+    const pay = order.payment;
+    const sent = pay.receipt_sent;
+    const note = pay.note ? '<div class="notice warn" role="alert">' + icon('warn') + '<span><b>Оплата не подтверждена.</b> ' + esc(pay.note) + '</span></div>' : '';
+    const qr = pay.qr_url
+      ? '<button type="button" class="qr-card" data-act="qr-zoom" aria-label="Увеличить QR-код"><img class="qr" src="' + esc(pay.qr_url) + '" alt="QR-код для оплаты" width="240" height="240"></button>'
+      : '<div class="qr-card empty"><p>QR-код пока не загружен. Напишите нам, и мы всё подключим.</p></div>';
+    const state = sent
+      ? '<div class="pay-state" role="status"><span class="em big" aria-hidden="true">⏳</span><div><b>Чек получен — проверяем оплату</b><span>Обычно это занимает несколько минут. Как только мы подтвердим, сказка начнёт создаваться, а в чат придёт сообщение. Приложение можно закрыть 💌</span></div></div>'
+      : '';
+    app.innerHTML = '<section class="screen pay">' +
+      '<header class="pay-head"><span class="em big" aria-hidden="true">🪙</span><h1>Оплата книги</h1>' +
+      '<p>Сказка для ' + esc(pay.child) + ' — <b>' + esc(pay.price_text) + '</b></p></header>' +
+      '<div class="pay-body">' + note + state + (sent ? '' : qr) +
+      (sent ? '' : '<p class="amount">К оплате: <b>' + esc(pay.price_text) + '</b></p>') +
+      (sent || !pay.qr_url ? '' : '<button type="button" class="btn secondary small qr-save" data-act="qr-save">' + icon('download') + 'Сохранить QR в телефон</button>') +
+      (sent ? '' : '<ol class="pay-steps"><li><span class="n">1</span><span>' + esc(pay.instructions) + '</span></li>' +
+        '<li><span class="n">2</span><span>Переведите точную сумму и сделайте скриншот или фото чека.</span></li>' +
+        '<li><span class="n">3</span><span>Нажмите «Отправить чек» внизу. Мы проверим оплату и сразу начнём писать сказку ✨</span></li></ol>') +
+      '</div>' +
+      '<footer class="footer"><p class="form-error" id="pay-error" role="alert" hidden></p>' +
+      '<input type="file" id="receipt-file" accept="image/*" hidden>' +
+      (pay.qr_url ? '<button type="button" class="btn" data-act="receipt-pick">' + icon('clip') + (sent ? 'Отправить другой чек' : 'Отправить чек') + '</button>' : '') +
+      '<button type="button" class="btn ghost small cancel-link" data-act="cancel-unpaid">Отменить заказ</button></footer></section>';
+    window.scrollTo(0, 0);
+    payPoll(token, pay);
+  }
+
+  function payPoll(token, shown) {
+    setTimeout(async () => {
+      if (token !== S.payId || S.screen !== 'pay') return;
+      try {
+        const o = await api('/api/orders/' + encodeURIComponent(S.orderId));
+        if (token !== S.payId || S.screen !== 'pay') return;
+        if (!o.payment) { if (o.status === 'cancelled') { await refreshConfig(); showWelcome(); } else showWait(S.orderId); return; }
+        if (o.payment.receipt_sent !== shown.receipt_sent || o.payment.note !== shown.note) { haptic.tap(); showPay(S.orderId, o); return; }
+      } catch (e) { /* попробуем позже */ }
+      payPoll(token, shown);
+    }, 4000);
+  }
+
+  function showPayError(text) {
+    const el = document.getElementById('pay-error');
+    if (el) { el.textContent = text; el.hidden = false; }
+    haptic.bad();
+  }
+
+  async function uploadReceipt(file) {
+    if (!file) return;
+    const btn = $('[data-act="receipt-pick"]');
+    if (btn) { btn.classList.add('busy'); btn.disabled = true; }
+    const err = document.getElementById('pay-error'); if (err) err.hidden = true;
+    try {
+      let blob;
+      try { blob = await downscale(file, 1600); } catch (e) { throw new Error('Не получилось открыть файл. Отправьте скриншот или фото чека (JPEG или PNG).'); }
+      const form = new FormData();
+      form.append('receipt', blob, 'check.jpg');
+      await api('/api/orders/' + encodeURIComponent(S.orderId) + '/receipt', { method: 'POST', form });
+      haptic.ok();
+      showPay(S.orderId);
+    } catch (e) {
+      if (btn) { btn.classList.remove('busy'); btn.disabled = false; }
+      showPayError(e.message);
+    }
+  }
+
+  function cancelUnpaid() {
+    confirmDialog('Отменить заказ? Анкету придётся заполнить заново.', async () => {
+      try {
+        await api('/api/orders/' + encodeURIComponent(S.orderId) + '/cancel', { method: 'POST' });
+        await refreshConfig();
+        showWelcome();
+      } catch (e) { showPayError(e.message); }
+    });
+  }
+
+  function zoomQr() {
+    const img = $('.qr');
+    if (!img) return;
+    const box = document.createElement('div');
+    box.className = 'qr-zoom';
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'QR-код');
+    box.innerHTML = '<img src="' + esc(img.getAttribute('src')) + '" alt="QR-код для оплаты"><p>Нажмите, чтобы закрыть</p>';
+    box.addEventListener('click', () => box.remove());
+    document.body.appendChild(box);
+  }
+
+  function saveQr() {
+    const o = S.order;
+    if (!o || !o.payment || !o.payment.qr_url) return;
+    haptic.tap();
+    const url = absUrl(o.payment.qr_url) + '&download=1';
+    try {
+      if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.downloadFile && url.indexOf('https://') === 0) {
+        tg.downloadFile({ url, file_name: 'qr-oplata.png' });
+        return;
+      }
+      if (tg && tg.openLink) { tg.openLink(url); return; }
+    } catch (e) { /* откроем обычной ссылкой */ }
+    window.open(url, '_blank');
+  }
+
+  /* ===================================================================== админка */
+  async function showAdmin(tab) {
+    leaveScreen();
+    S.screen = 'admin';
+    if (tab) S.adminTab = tab;
+    setBackButton(true);
+    setHeader('bg_color');
+    if (!S.admin) app.innerHTML = '<div class="boot"><i aria-label="Загрузка"></i></div>';
+    await loadAdmin();
+    if (S.screen !== 'admin') return;
+    S.adminTimer = setInterval(() => { if (S.screen === 'admin' && S.adminTab === 'checks' && !document.hidden) loadAdmin(true); }, 15000);
+  }
+
+  async function loadAdmin(quiet) {
+    try {
+      S.admin = await api('/api/admin/payments');
+    } catch (e) {
+      if (quiet) return;
+      showFatal(e, () => showAdmin());
+      return;
+    }
+    if (S.screen === 'admin') renderAdmin(quiet);
+  }
+
+  function renderAdmin(quiet) {
+    const a = S.admin;
+    const keep = quiet ? window.scrollY : 0;
+    const tabs = [['checks', 'Чеки', a.pending.length], ['settings', 'Настройки', 0]].map((t) =>
+      '<button type="button" role="tab" aria-selected="' + (S.adminTab === t[0]) + '" data-act="admin-tab" data-tab="' + t[0] + '">' + t[1] + (t[2] ? '<b class="n">' + t[2] + '</b>' : '') + '</button>').join('');
+    app.innerHTML = '<section class="screen admin"><header class="a-head"><h1>' + icon('gear') + 'Админка</h1>' +
+      '<p>' + (a.settings.enabled && a.settings.has_qr ? 'Приём оплаты <b class="on">включён</b>' : 'Приём оплаты <b class="off">выключен</b>: книги сейчас бесплатные') +
+      ' · подтверждено за сутки: ' + a.paid_today + '</p></header>' +
+      '<div class="tabs" role="tablist">' + tabs + '</div><div class="a-body">' + (S.adminTab === 'checks' ? adminChecks(a) : adminSettings(a.settings)) + '</div></section>';
+    if (quiet) window.scrollTo(0, keep); else window.scrollTo(0, 0);
+  }
+
+  function adminChecks(a) {
+    const cards = a.pending.map((p) =>
+      '<article class="rcard" data-id="' + esc(p.id) + '">' +
+      (p.receipt_url ? '<button type="button" class="rimg" data-act="zoom-img" data-src="' + esc(p.receipt_url) + '" aria-label="Открыть чек"><img src="' + esc(p.receipt_url) + '" alt="Чек" loading="lazy"></button>' : '') +
+      '<div class="rmeta"><b>' + esc(p.user) + (p.username ? ' <small>@' + esc(p.username) + '</small>' : '') + '</b>' +
+      '<span>Сказка для ' + esc(p.child) + '</span><span class="ago">Чек ' + esc(ago(p.receipt_at)) + '</span></div>' +
+      '<div class="ract"><button type="button" class="btn small" data-act="approve" data-id="' + esc(p.id) + '">' + icon('check') + 'Подтвердить</button>' +
+      '<button type="button" class="btn small secondary" data-act="reject-open" data-id="' + esc(p.id) + '">Отклонить</button></div>' +
+      '<div class="reject" hidden><div class="chips">' + ['Сумма не совпадает', 'Платёж не найден', 'Чек не читается'].map((r) =>
+        '<button type="button" class="chip" data-act="reject-reason" data-text="' + esc(r) + '">' + esc(r) + '</button>').join('') + '</div>' +
+      '<input class="input" type="text" maxlength="200" placeholder="Причина (покупатель её увидит)" aria-label="Причина отказа">' +
+      '<button type="button" class="btn small danger" data-act="reject" data-id="' + esc(p.id) + '">Отправить отказ</button></div></article>').join('');
+    const empty = '<div class="a-empty"><span class="em big" aria-hidden="true">🌿</span><p>Новых чеков нет. Как только покупатель отправит чек, он появится здесь и придёт вам в чат.</p></div>';
+    const waiting = a.awaiting.length
+      ? '<h2 class="a-sub">Ещё не прислали чек (' + a.awaiting.length + ')</h2><ul class="mini">' + a.awaiting.map((p) =>
+        '<li><div><b>' + esc(p.user) + '</b><span>' + esc(p.child) + ' · ' + esc(ago(p.created_at)) + (p.pay_note ? ' · отказ: ' + esc(p.pay_note) : '') + '</span></div>' +
+        '<button type="button" class="btn small secondary" data-act="approve" data-id="' + esc(p.id) + '">Подтвердить без чека</button></li>').join('') + '</ul>' : '';
+    const recent = a.recent.length
+      ? '<h2 class="a-sub">Недавно подтверждены</h2><ul class="mini done">' + a.recent.map((p) =>
+        '<li><div><b>' + esc(p.user) + '</b><span>' + esc(p.child) + ' · ' + esc(ago(p.paid_at)) + '</span></div><span class="tag">' + esc(p.status === 'done' ? 'книга готова' : p.status === 'error' ? 'ошибка' : 'создаётся') + '</span></li>').join('') + '</ul>' : '';
+    return (cards || empty) + waiting + recent;
+  }
+
+  function adminSettings(st) {
+    const qr = st.qr_url
+      ? '<div class="qr-card small"><img class="qr" src="' + esc(st.qr_url) + '" alt="Текущий QR-код" width="180" height="180"></div>'
+      : '<div class="qr-card empty small"><p>QR-код ещё не загружен</p></div>';
+    return '<div class="set">' +
+      '<div class="switch-row"><div class="t"><b id="sw-pay">💳 Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, сказка создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
+      '<button type="button" class="switch" role="switch" aria-labelledby="sw-pay" aria-checked="' + !!st.enabled + '" data-act="pay-switch"' + (st.has_qr ? '' : ' disabled') + '></button></div>' +
+      '<h2 class="a-sub">Ваш QR-код</h2>' + qr +
+      '<input type="file" id="qr-file" accept="image/*" hidden>' +
+      '<button type="button" class="btn secondary small" data-act="qr-upload">' + icon('upload') + (st.has_qr ? 'Заменить QR-код' : 'Загрузить QR-код') + '</button>' +
+      '<label class="field"><span class="lbl">Цена (показывается покупателю)</span><input class="input" id="set-price" type="text" maxlength="40" value="' + esc(st.price_text) + '" placeholder="499 сом"></label>' +
+      '<label class="field"><span class="lbl">Подсказка для покупателя</span><textarea class="textarea" id="set-text" maxlength="400" rows="4" placeholder="' + esc(st.default_instructions) + '">' + esc(st.instructions) + '</textarea></label>' +
+      '<p class="form-error" id="set-error" role="alert" hidden></p><p class="saved" id="set-saved" role="status" hidden>Сохранено ✓</p>' +
+      '<button type="button" class="btn" data-act="settings-save">Сохранить настройки</button></div>';
+  }
+
+  async function adminAction(path, body) {
+    return api(path, { method: 'POST', json: body === undefined ? {} : body });
+  }
+
+  async function approvePayment(el) {
+    const id = el.dataset.id;
+    confirmDialog('Подтвердить оплату? Сказка сразу начнёт создаваться.', async () => {
+      el.classList.add('busy'); el.disabled = true;
+      try { await adminAction('/api/admin/orders/' + encodeURIComponent(id) + '/approve'); haptic.ok(); await loadAdmin(true); }
+      catch (e) { el.classList.remove('busy'); el.disabled = false; haptic.bad(); await loadAdmin(true); showAdminToast(e.message); }
+    });
+  }
+
+  async function rejectPayment(el) {
+    const card = el.closest('.rcard');
+    const reason = card ? $('input', card).value.trim() : '';
+    el.classList.add('busy'); el.disabled = true;
+    try { await adminAction('/api/admin/orders/' + encodeURIComponent(el.dataset.id) + '/reject', { reason }); haptic.ok(); await loadAdmin(true); }
+    catch (e) { el.classList.remove('busy'); el.disabled = false; haptic.bad(); showAdminToast(e.message); }
+  }
+
+  function showAdminToast(text) {
+    const old = $('.toast'); if (old) old.remove();
+    const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'alert'); t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4200);
+  }
+
+  async function saveAdminSettings() {
+    const btn = $('[data-act="settings-save"]');
+    const err = document.getElementById('set-error'), ok = document.getElementById('set-saved');
+    err.hidden = true; ok.hidden = true;
+    btn.classList.add('busy'); btn.disabled = true;
+    try {
+      const st = S.admin.settings;
+      const res = await adminAction('/api/admin/settings', {
+        enabled: st.enabled, price_text: document.getElementById('set-price').value, instructions: document.getElementById('set-text').value,
+      });
+      S.admin.settings = Object.assign({}, S.admin.settings, res);
+      haptic.ok();
+      renderAdmin();
+      const saved = document.getElementById('set-saved'); if (saved) saved.hidden = false;
+    } catch (e) {
+      btn.classList.remove('busy'); btn.disabled = false;
+      err.textContent = e.message; err.hidden = false; haptic.bad();
+    }
+  }
+
+  async function uploadQr(file) {
+    if (!file) return;
+    const btn = $('[data-act="qr-upload"]');
+    if (btn) { btn.classList.add('busy'); btn.disabled = true; }
+    try {
+      const form = new FormData();
+      form.append('qr', file, file.name || 'qr.png');
+      const res = await api('/api/admin/qr', { method: 'POST', form });
+      S.admin.settings = Object.assign({}, S.admin.settings, res);
+      haptic.ok();
+      renderAdmin(true);
+    } catch (e) {
+      if (btn) { btn.classList.remove('busy'); btn.disabled = false; }
+      showAdminToast(e.message);
+    }
+  }
+
+  function zoomReceipt(src) {
+    const box = document.createElement('div');
+    box.className = 'qr-zoom dark';
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Чек');
+    box.innerHTML = '<img src="' + esc(src) + '" alt="Чек"><p>Нажмите, чтобы закрыть</p>';
+    box.addEventListener('click', () => box.remove());
+    document.body.appendChild(box);
+  }
+
   /* ===================================================================== события */
   const ACTIONS = {
     start: () => { haptic.tap(); startWizard(); },
@@ -1090,6 +1385,20 @@
     'fb-buy': (el) => { S.fb.would_pay = S.fb.would_pay === el.dataset.v ? null : el.dataset.v; haptic.select(); syncFeedback(); },
     'fb-send': sendFeedback,
     again,
+    'receipt-pick': () => { const f = document.getElementById('receipt-file'); if (f) f.click(); },
+    'cancel-unpaid': cancelUnpaid,
+    'qr-zoom': zoomQr,
+    'qr-save': saveQr,
+    'open-admin': () => { haptic.tap(); showAdmin('checks'); },
+    'admin-tab': (el) => { S.adminTab = el.dataset.tab; haptic.select(); renderAdmin(); },
+    approve: approvePayment,
+    'reject-open': (el) => { const r = $('.reject', el.closest('.rcard')); r.hidden = !r.hidden; if (!r.hidden) $('input', r).focus({ preventScroll: true }); },
+    'reject-reason': (el) => { const input = $('input', el.closest('.reject')); input.value = el.dataset.text; haptic.select(); },
+    reject: rejectPayment,
+    'zoom-img': (el) => zoomReceipt(el.dataset.src),
+    'pay-switch': (el) => { S.admin.settings.enabled = !S.admin.settings.enabled; el.setAttribute('aria-checked', String(S.admin.settings.enabled)); haptic.select(); },
+    'qr-upload': () => { const f = document.getElementById('qr-file'); if (f) f.click(); },
+    'settings-save': saveAdminSettings,
   };
 
   function syncFeedback() {
@@ -1126,6 +1435,8 @@
 
   document.addEventListener('change', (ev) => {
     if (ev.target.id === 'file') onPhotoChosen(ev.target.files && ev.target.files[0]);
+    if (ev.target.id === 'receipt-file') { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; uploadReceipt(f); }
+    if (ev.target.id === 'qr-file') { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; uploadQr(f); }
   });
 
   document.addEventListener('keydown', (ev) => {
@@ -1155,6 +1466,7 @@
       return;
     }
     S.steps = buildSteps();
+    if (S.cfg.is_admin && query.get('admin') === '1') { showAdmin('checks'); return; }
     if (S.cfg.active_order_id) { showWait(S.cfg.active_order_id); return; }
     showWelcome();
   }

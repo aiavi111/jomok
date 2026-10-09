@@ -6,16 +6,17 @@ import html
 import logging
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher, Router
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import (TelegramAPIError, TelegramForbiddenError, TelegramNetworkError,
                                 TelegramRetryAfter, TelegramUnauthorizedError)
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (BotCommand, BotCommandScopeChat, BotCommandScopeDefault, FSInputFile, InlineKeyboardButton,
-                           InlineKeyboardMarkup, MenuButtonWebApp, Message, WebAppInfo)
+                           InlineKeyboardMarkup, MenuButtonWebApp, Message, WebAppInfo, CallbackQuery)
 
 from .config import Settings
+from .errors import AppError
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,10 @@ PUBLIC_COMMANDS = [
     BotCommand(command="start", description="✨ Создать сказку"),
     BotCommand(command="help", description="❓ Как это работает"),
 ]
-ADMIN_COMMAND = BotCommand(command="id", description="🆔 Узнать свой ID (для владельца)")
+ADMIN_COMMANDS = [
+    BotCommand(command="admin", description="⚙️ Админка: оплаты и QR-код"),
+    BotCommand(command="id", description="🆔 Узнать свой ID (для владельца)"),
+]
 
 
 def webapp_ready(url: str) -> bool:
@@ -68,6 +72,10 @@ def webapp_keyboard(url: str) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=BUTTON_TEXT, web_app=WebAppInfo(url=url))
     ]])
+
+
+def admin_url(url: str) -> str:
+    return url + ("&" if "?" in url else "?") + "admin=1"
 
 
 def build_router() -> Router:
@@ -85,6 +93,51 @@ def build_router() -> Router:
             "Если вы владелец бота, впишите это число в строку ADMIN_CHAT_ID в файле .env — "
             "и копии книг и отзывы будут приходить сюда 💌"
         )
+
+    @router.message(Command("admin"))
+    async def on_admin(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
+        if runtime.settings.admin_chat_id is None or message.chat.id != runtime.settings.admin_chat_id:
+            await message.answer("Эта команда только для владельца бота.")
+            return
+        if not webapp_ready(webapp_url):
+            await message.answer(NOT_READY)
+            return
+        await message.answer(
+            "⚙️ <b>Админка</b>: чеки на подтверждение, QR-код, цена и текст для покупателей.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⚙️ Открыть админку", web_app=WebAppInfo(url=admin_url(webapp_url)))]]))
+
+    @router.callback_query(F.data.startswith("pay:"))
+    async def on_payment_button(call: CallbackQuery, runtime: "BotRuntime") -> None:
+        admin = runtime.settings.admin_chat_id
+        if admin is None or call.from_user.id != admin:
+            await call.answer("Это действие только для владельца.", show_alert=True)
+            return
+        service = runtime.service
+        parts = (call.data or "").split(":", 2)
+        if service is None or len(parts) != 3 or parts[1] not in ("ok", "no"):
+            await call.answer("Не получилось. Откройте админку.", show_alert=True)
+            return
+        try:
+            if parts[1] == "ok":
+                await service.approve(parts[2])
+                note = "✅ Оплата подтверждена, сказка создаётся"
+            else:
+                await service.reject(parts[2], None)
+                note = "❌ Чек отклонён, покупателю отправлено сообщение"
+        except AppError as e:
+            await call.answer(e.message, show_alert=True)
+            try:
+                await call.message.edit_reply_markup(reply_markup=None)
+            except TelegramAPIError:
+                pass
+            return
+        await call.answer(note)
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+            await call.message.reply(note)
+        except TelegramAPIError:
+            pass
 
     @router.message(Command("help"))
     async def on_help(message: Message, webapp_url: str) -> None:
@@ -104,9 +157,33 @@ def build_router() -> Router:
 class TelegramNotifier:
     """Отправка книг и сообщений через Bot API."""
 
-    def __init__(self, bot: Bot, admin_chat_id: int | None):
+    def __init__(self, bot: Bot, admin_chat_id: int | None, webapp_url: str = ""):
         self.bot = bot
         self.admin_chat_id = admin_chat_id
+        self.webapp_url = webapp_url
+
+    async def notify_payment(self, order_id: str, receipt_path: Path, text: str) -> None:
+        """Чек владельцу: фото и кнопки «Подтвердить» / «Отклонить» (и вход в админку)."""
+        if self.admin_chat_id is None:
+            log.warning("ADMIN_CHAT_ID не задан: чек по заказу %s виден только в админке", order_id)
+            return
+        rows = [[InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"pay:ok:{order_id}"),
+                 InlineKeyboardButton(text="❌ Отклонить", callback_data=f"pay:no:{order_id}")]]
+        if webapp_ready(self.webapp_url):
+            rows.append([InlineKeyboardButton(text="⚙️ Админка", web_app=WebAppInfo(url=admin_url(self.webapp_url)))])
+        markup = InlineKeyboardMarkup(inline_keyboard=rows)
+        try:
+            await self.bot.send_photo(self.admin_chat_id, FSInputFile(receipt_path), caption=text[:1000],
+                                      reply_markup=markup, parse_mode=None)
+        except TelegramAPIError as e:
+            log.warning("Чек владельцу не отправлен: %s", type(e).__name__)
+            await self.notify_admin(text)
+
+    async def notify_user(self, user_id: int, text: str) -> None:
+        try:
+            await self.bot.send_message(user_id, html.escape(text)[:4000], parse_mode=None)
+        except (TelegramForbiddenError, TelegramAPIError, TelegramNetworkError, OSError) as e:
+            log.info("Сообщение пользователю не отправлено: %s", type(e).__name__)
 
     async def _send_document(self, chat_id: int, pdf_path: Path, filename: str, caption: str) -> None:
         document = FSInputFile(pdf_path, filename=filename)
@@ -155,10 +232,12 @@ class BotRuntime:
         self.bot_info = bot_info
         self.bot = bot or Bot(token=settings.telegram_bot_token,
                               default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-        self.notifier = TelegramNotifier(self.bot, settings.admin_chat_id)
+        self.notifier = TelegramNotifier(self.bot, settings.admin_chat_id, settings.webapp_url)
+        self.service = None                  # сервис заказов подключается в main.py
         self.dp = Dispatcher()
         self.dp.include_router(build_router())
         self.dp["webapp_url"] = settings.webapp_url
+        self.dp["runtime"] = self
 
     async def setup_menu_button(self) -> None:
         url = self.settings.webapp_url
@@ -183,9 +262,9 @@ class BotRuntime:
         admin = self.settings.admin_chat_id
         if admin is not None:           # команда /id видна только владельцу
             try:
-                await self.bot.set_my_commands(PUBLIC_COMMANDS + [ADMIN_COMMAND], scope=BotCommandScopeChat(chat_id=admin))
+                await self.bot.set_my_commands(PUBLIC_COMMANDS + ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=admin))
             except TelegramAPIError as e:
-                log.warning("Не удалось добавить команду /id для владельца: %s", e)
+                log.warning("Не удалось добавить команды для владельца: %s", e)
 
     async def run(self) -> None:
         try:
@@ -209,7 +288,7 @@ class BotRuntime:
         except TelegramAPIError as e:
             log.warning("Не удалось настроить бота: %s", e)
         try:
-            await self.dp.start_polling(self.bot, handle_signals=False, allowed_updates=["message"])
+            await self.dp.start_polling(self.bot, handle_signals=False, allowed_updates=["message", "callback_query"])
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

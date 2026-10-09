@@ -14,9 +14,11 @@ from .auth import TgUser
 from .bookgen import BookResult, build_book
 from .bookinfo import book_labels
 from .config import Settings
-from .db import ACTIVE_STATUSES, Database
+from .declension import genitive_ru
+from .db import ACTIVE_STATUSES, PAYMENT_STATUSES, Database
 from .errors import (AppError, BusyError, ConflictError, LimitError, NotFoundError, ProviderError, StoryError,
                      ValidationError)
+from .paydesk import PaymentDesk
 from .imaging import hex_color, band_color, prepare_photo
 from .links import make_token
 from .notify import Notifier
@@ -31,6 +33,9 @@ log = logging.getLogger(__name__)
 ORDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,32}$")
 IMAGE_NAME_RE = re.compile(r"^(cover|p[1-8])$")
 DAY = 24 * 60 * 60
+UNPAID_KEEP_DAYS = 3             # неоплаченный заказ без чека через столько дней отменяется сам
+QR_TOKEN_ID = "payment-qr"
+DEFAULT_REJECT = "Платёж не найден. Проверьте сумму и отправьте чек ещё раз."
 QUEUE_MAX = 30
 WOULD_PAY = ("yes", "maybe", "no")
 
@@ -49,7 +54,7 @@ def safe_filename(title: str) -> str:
 
 class OrderService:
     def __init__(self, settings: Settings, db: Database, text: TextProvider, image: ImageProvider,
-                 notifier: Notifier, payment: PaymentProvider, link_secret: bytes):
+                 notifier: Notifier, payment: PaymentProvider, link_secret: bytes, desk: PaymentDesk | None = None):
         self.settings = settings
         self.db = db
         self.text = text
@@ -57,6 +62,7 @@ class OrderService:
         self.notifier = notifier
         self.payment = payment
         self.link_secret = link_secret
+        self.desk = desk or PaymentDesk(db, settings.data_dir, settings.price_text)
         self.orders_dir = Path(settings.data_dir) / "orders"
         self.orders_dir.mkdir(parents=True, exist_ok=True)
         self.gen_sem = asyncio.Semaphore(settings.max_parallel_generations)   # книг одновременно на весь сервис
@@ -68,6 +74,16 @@ class OrderService:
         n = self.db.interrupt_unfinished(INTERRUPTED, "Сервер перезапущен во время генерации")
         if n:
             log.warning("Недописанных заказов помечено ошибкой после перезапуска: %s", n)
+
+    def resume_paid(self) -> int:
+        """Оплаченные заказы, которые прервал перезапуск, запускаем заново: платить второй раз не нужно."""
+        rows = self.db.unfinished_paid()
+        for row in rows:
+            self.db.update_order(row["id"], status="queued")
+            self._start(row["id"])
+        if rows:
+            log.warning("Оплаченных заказов запущено заново после перезапуска: %s", len(rows))
+        return len(rows)
 
     async def shutdown(self) -> None:
         for task in list(self._tasks):
@@ -134,13 +150,128 @@ class OrderService:
         odir.mkdir(parents=True, exist_ok=True)
         if photo:
             (odir / "photo.jpg").write_bytes(photo)
-        self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False), paid=check.paid)
+        needs_payment = self.desk.required() and not check.paid
+        self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False), paid=check.paid,
+                             status="awaiting_payment" if needs_payment else "queued")
+        if not needs_payment:
+            self._start(order_id)
+        log.info("Заказ %s создан (возраст %s, язык %s, место %s, ценность %s, фото %s, оплата нужна: %s)",
+                 order_id, profile.age, profile.language, profile.place, profile.value, has_photo, needs_payment)
+        return order_id
+
+    def _start(self, order_id: str) -> None:
         task = asyncio.create_task(self._run(order_id), name=f"order-{order_id}")
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
-        log.info("Заказ %s создан (возраст %s, язык %s, место %s, ценность %s, фото %s)",
-                 order_id, profile.age, profile.language, profile.place, profile.value, has_photo)
-        return order_id
+
+    # ------------------------------------------------------------------ оплата по QR
+    def price_text(self) -> str:
+        return self.desk.price_text()
+
+    def _payment_order(self, order_id: str, user_id: int | None = None):
+        """Заказ, который ждёт оплаты или проверки чека. user_id=None — вызывает администратор."""
+        if not ORDER_ID_RE.match(order_id):
+            raise NotFoundError("Такого заказа нет.")
+        row = self.db.get_order(order_id)
+        if row is None or (user_id is not None and row["user_id"] != user_id):
+            raise NotFoundError("Такого заказа нет.")
+        if row["status"] not in PAYMENT_STATUSES:
+            raise ConflictError("Этот заказ уже обработан: оплата не требуется.")
+        return row
+
+    async def submit_receipt(self, order_id: str, user: TgUser, raw: bytes) -> None:
+        row = self._payment_order(order_id, user.id)
+        if not self.desk.required():
+            raise ConflictError("Приём оплаты сейчас выключен. Напишите нам, мы всё поправим.")
+        data = self.desk.prepare_receipt(raw)
+        odir = self.order_dir(order_id)
+        odir.mkdir(parents=True, exist_ok=True)
+        (odir / "receipt.jpg").write_bytes(data)
+        self.db.update_order(order_id, status="payment_review", receipt_at=time.time(), pay_note=None)
+        profile = Profile.from_dict(json.loads(row["profile_json"]))
+        who = self.db.get_user(user.id)
+        label = (who["first_name"] if who and who["first_name"] else "Покупатель") + (f" (@{who['username']})" if who and who["username"] else "")
+        text = (f"💳 Новый чек на {self.price_text()}\nОт: {label}\nСказка для: {profile.name}, {profile.age} "
+                f"{ru_plural(profile.age, 'год', 'года', 'лет')}\nЗаказ: {order_id}")
+        notify = getattr(self.notifier, "notify_payment", None)
+        try:
+            if notify:
+                await notify(order_id, odir / "receipt.jpg", text)
+            else:
+                await self.notifier.notify_admin(text)
+        except Exception:  # noqa: BLE001 — чек всё равно виден в админке
+            log.exception("Заказ %s: не удалось сообщить администратору о чеке", order_id)
+        log.info("Заказ %s: получен чек, ждёт подтверждения", order_id)
+
+    async def _tell_user(self, user_id: int, text: str) -> None:
+        send = getattr(self.notifier, "notify_user", None)
+        if not send:
+            return
+        try:
+            await send(user_id, text)
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось отправить сообщение пользователю")
+
+    async def approve(self, order_id: str) -> None:
+        row = self._payment_order(order_id)
+        self.db.update_order(order_id, status="queued", paid=1, paid_at=time.time(), pay_note=None)
+        self._start(order_id)
+        log.info("Заказ %s: оплата подтверждена, генерация запущена", order_id)
+        await self._tell_user(row["user_id"], "✅ Оплата получена, спасибо! Начинаем писать вашу сказку. "
+                                              "Откройте приложение, чтобы следить за прогрессом, — книга придёт сюда 💛")
+
+    async def reject(self, order_id: str, reason: str | None = None) -> None:
+        row = self._payment_order(order_id)
+        reason = " ".join((reason or "").split())[:300] or DEFAULT_REJECT
+        (self.order_dir(order_id) / "receipt.jpg").unlink(missing_ok=True)
+        self.db.update_order(order_id, status="awaiting_payment", pay_note=reason, receipt_at=None)
+        log.info("Заказ %s: чек отклонён", order_id)
+        await self._tell_user(row["user_id"], f"❌ Не удалось подтвердить оплату. {reason}\n"
+                                              "Откройте приложение и отправьте чек ещё раз.")
+
+    def cancel_unpaid(self, order_id: str, user_id: int | None = None) -> None:
+        row = self._payment_order(order_id, user_id)
+        profile = Profile.from_dict(json.loads(row["profile_json"]))
+        shutil.rmtree(self.order_dir(order_id), ignore_errors=True)
+        self.db.update_order(order_id, status="cancelled", files_deleted=1, pay_note=None,
+                             profile_json=json.dumps(profile.scrubbed(), ensure_ascii=False))
+        log.info("Заказ %s отменён до оплаты", order_id)
+
+    def qr_url(self) -> str | None:
+        if not self.desk.has_qr():
+            return None
+        return f"/api/payment/qr?t={make_token(self.link_secret, QR_TOKEN_ID, 0)}"
+
+    def admin_overview(self) -> dict:
+        def item(row) -> dict:
+            profile = Profile.from_dict(json.loads(row["profile_json"]))
+            who = self.db.get_user(row["user_id"])
+            token = make_token(self.link_secret, f"receipt-{row['id']}", 0)
+            return {
+                "id": row["id"], "user_id": row["user_id"],
+                "user": (who["first_name"] if who and who["first_name"] else "Без имени"),
+                "username": who["username"] if who else None,
+                "child": f"{profile.name}, {profile.age} {ru_plural(profile.age, 'год', 'года', 'лет')}",
+                "receipt_at": row["receipt_at"], "created_at": row["created_at"], "paid_at": row["paid_at"],
+                "status": row["status"], "title": row["title"], "pay_note": row["pay_note"],
+                "receipt_url": f"/api/admin/receipts/{row['id']}.jpg?t={token}"
+                               if (self.order_dir(row["id"]) / "receipt.jpg").exists() else None,
+            }
+        return {
+            "settings": {**self.desk.settings(), "qr_url": self.qr_url()},
+            "pending": [item(r) for r in self.db.orders_with_status("payment_review")],
+            "awaiting": [item(r) for r in self.db.orders_with_status("awaiting_payment", limit=30)],
+            "recent": [item(r) for r in self.db.recent_paid(10)],
+            "paid_today": self.db.count_paid_since(time.time() - DAY),
+        }
+
+    def receipt_path(self, order_id: str) -> Path:
+        if not ORDER_ID_RE.match(order_id):
+            raise NotFoundError("Чека нет.")
+        path = self.orders_dir / order_id / "receipt.jpg"
+        if not path.exists():
+            raise NotFoundError("Чека нет.")
+        return path
 
     # ------------------------------------------------------------------ генерация
     async def _run(self, order_id: str) -> None:
@@ -289,11 +420,21 @@ class OrderService:
         }
         if status == "error" and (is_admin or self.settings.dev_mode) and row["error_detail"]:
             view["error_detail"] = row["error_detail"]
+        if status in PAYMENT_STATUSES:
+            view["payment"] = {
+                "price_text": self.price_text(), "instructions": self.desk.instructions(), "qr_url": self.qr_url(),
+                "note": row["pay_note"], "receipt_sent": status == "payment_review",
+                "child": genitive_ru(profile.name, profile.gender) if profile.language == "ru" else profile.name,
+            }
         return view
 
     @staticmethod
     def _progress(status: str, cover_ready: bool, pages_done: int) -> dict:
         base = {"images_done": pages_done, "images_total": 8, "cover_ready": cover_ready}
+        if status == "awaiting_payment":
+            return {**base, "percent": 0, "stage": -1, "label": "Ждём оплату"}
+        if status == "payment_review":
+            return {**base, "percent": 0, "stage": -1, "label": "Проверяем оплату"}
         if status == "queued":
             return {**base, "percent": 2, "stage": -1, "label": "Жду очереди"}
         if status == "writing":
@@ -350,6 +491,12 @@ class OrderService:
             self.db.update_order(row["id"], files_deleted=1,
                                  profile_json=json.dumps(profile.scrubbed(), ensure_ascii=False))
             removed += 1
+        for row in self.db.unpaid_older_than(time.time() - UNPAID_KEEP_DAYS * DAY):
+            try:
+                self.cancel_unpaid(row["id"])
+                removed += 1
+            except AppError:
+                pass
         # осиротевшие папки (например, после сбоя) тоже убираем
         for path in self.orders_dir.iterdir():
             if path.is_dir() and path.stat().st_mtime < cutoff and self.db.get_order(path.name) is None:

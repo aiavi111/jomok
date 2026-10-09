@@ -14,7 +14,7 @@ from aiohttp import web
 from . import __version__, options
 from .auth import TgUser, authenticate
 from .config import ROOT, Settings
-from .errors import AppError, AuthError, NotFoundError, ValidationError
+from .errors import AppError, AuthError, ForbiddenError, NotFoundError, ValidationError
 from .imaging import MAX_PHOTO_BYTES
 from .links import check_token
 from .service import OrderService
@@ -23,7 +23,7 @@ from .db import Database
 log = logging.getLogger(__name__)
 
 WEBAPP_DIR = ROOT / "webapp"
-FILE_ROUTE = re.compile(r"^/api/orders/[^/]+/(img/[^/]+|book\.pdf)$")
+FILE_ROUTE = re.compile(r"^/api/(orders/[^/]+/(img/[^/]+|book\.pdf)|payment/qr|admin/receipts/[^/]+)$")
 MAX_PROFILE_BYTES = 20_000
 
 SETTINGS_KEY = web.AppKey("settings", Settings)
@@ -114,8 +114,10 @@ async def get_config(request: web.Request) -> web.Response:
         "dev_mode": settings.dev_mode,
         "photo_supported": service.photo_supported(),
         "privacy_warning": settings.privacy_warning,
-        "price_text": settings.price_text,
-        "free_in_test": service.payment.name == "free",
+        "price_text": service.price_text(),
+        "free_in_test": not service.desk.required(),
+        "payment_required": service.desk.required(),
+        "is_admin": _is_admin(settings, user),
         "limits": {
             "books_per_day": settings.max_books_per_user_per_day,
             "remaining_today": service.remaining_today(user.id),
@@ -169,7 +171,8 @@ async def create_order(request: web.Request) -> web.Response:
     service: OrderService = request.app[SERVICE_KEY]
     payload, photo = await _read_order_request(request)
     order_id = await service.create_order(request[USER_KEY], payload, photo)
-    return json_response({"order_id": order_id, "status": "queued"}, 201)
+    status = service.db.get_order(order_id)["status"]
+    return json_response({"order_id": order_id, "status": status}, 201)
 
 
 async def get_order(request: web.Request) -> web.Response:
@@ -228,6 +231,121 @@ async def get_pdf(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(path, headers=headers)
 
 
+# ------------------------------------------------------------------ оплата по QR
+async def _read_single_image(request: web.Request, field: str, limit: int = MAX_PHOTO_BYTES) -> bytes:
+    if not request.content_type.startswith("multipart/"):
+        raise ValidationError("Прикрепите картинку.")
+    reader = await request.multipart()
+    async for part in reader:
+        if part.name != field:
+            continue
+        chunks, size = [], 0
+        while True:
+            chunk = await part.read_chunk(64 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > limit:
+                raise ValidationError("Файл слишком большой. Выберите картинку поменьше (до 8 МБ).")
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        if data:
+            return data
+    raise ValidationError("Картинка не пришла. Попробуйте ещё раз.")
+
+
+def _require_admin(request: web.Request) -> TgUser:
+    user: TgUser | None = request[USER_KEY]
+    if user is None or not _is_admin(request.app[SETTINGS_KEY], user):
+        raise ForbiddenError("Эта страница только для владельца.")
+    return user
+
+
+def _check_signed(request: web.Request, token_id: str) -> None:
+    """Файл открывается либо с подписью Telegram (в заголовке), либо по подписанной ссылке ?t=."""
+    if request[USER_KEY] is not None:
+        return
+    if not check_token(request.app[SERVICE_KEY].link_secret, token_id, 0, request.query.get("t")):
+        raise AuthError("Ссылка устарела. Откройте приложение заново.")
+
+
+async def get_payment_qr(request: web.Request) -> web.StreamResponse:
+    service: OrderService = request.app[SERVICE_KEY]
+    _check_signed(request, "payment-qr")
+    if not service.desk.has_qr():
+        raise NotFoundError("QR-код ещё не загружен.")
+    headers = {"Cache-Control": "private, max-age=300", "Content-Type": "image/png",
+               "Access-Control-Allow-Origin": "https://web.telegram.org"}      # нужно для Telegram.WebApp.downloadFile
+    if request.query.get("download") == "1":
+        headers["Content-Disposition"] = 'attachment; filename="qr-oplata.png"'
+    return web.FileResponse(service.desk.qr_path, headers=headers)
+
+
+async def post_receipt(request: web.Request) -> web.Response:
+    service: OrderService = request.app[SERVICE_KEY]
+    raw = await _read_single_image(request, "receipt")
+    await service.submit_receipt(request.match_info["order_id"], request[USER_KEY], raw)
+    return json_response({"ok": True, "status": "payment_review"})
+
+
+async def cancel_order(request: web.Request) -> web.Response:
+    service: OrderService = request.app[SERVICE_KEY]
+    service.cancel_unpaid(request.match_info["order_id"], request[USER_KEY].id)
+    return json_response({"ok": True})
+
+
+async def admin_payments(request: web.Request) -> web.Response:
+    _require_admin(request)
+    return json_response(request.app[SERVICE_KEY].admin_overview())
+
+
+async def admin_receipt(request: web.Request) -> web.StreamResponse:
+    service: OrderService = request.app[SERVICE_KEY]
+    order_id = request.match_info["order_id"]
+    if request[USER_KEY] is not None:
+        _require_admin(request)
+    else:
+        _check_signed(request, f"receipt-{order_id}")
+    return web.FileResponse(service.receipt_path(order_id), headers={"Cache-Control": "private, no-store", "Content-Type": "image/jpeg"})
+
+
+async def admin_approve(request: web.Request) -> web.Response:
+    _require_admin(request)
+    await request.app[SERVICE_KEY].approve(request.match_info["order_id"])
+    return json_response({"ok": True})
+
+
+async def admin_reject(request: web.Request) -> web.Response:
+    _require_admin(request)
+    reason = None
+    if request.can_read_body:
+        try:
+            data = await request.json()
+            reason = data.get("reason") if isinstance(data, dict) else None
+        except ValueError:
+            raise ValidationError("Причина пришла в неверном виде.")
+    await request.app[SERVICE_KEY].reject(request.match_info["order_id"], reason)
+    return json_response({"ok": True})
+
+
+async def admin_settings(request: web.Request) -> web.Response:
+    _require_admin(request)
+    service: OrderService = request.app[SERVICE_KEY]
+    try:
+        data = await request.json()
+    except ValueError:
+        raise ValidationError("Настройки пришли в неверном виде.")
+    service.desk.update(data)
+    return json_response({**service.desk.settings(), "qr_url": service.qr_url()})
+
+
+async def admin_qr(request: web.Request) -> web.Response:
+    _require_admin(request)
+    service: OrderService = request.app[SERVICE_KEY]
+    service.desk.save_qr(await _read_single_image(request, "qr"))
+    return json_response({**service.desk.settings(), "qr_url": service.qr_url()})
+
+
 async def post_feedback(request: web.Request) -> web.Response:
     service: OrderService = request.app[SERVICE_KEY]
     try:
@@ -269,6 +387,15 @@ def create_app(settings: Settings, db: Database, service: OrderService, bot_info
     app.router.add_get("/api/orders/{order_id}/img/{name}.jpg", get_image)
     app.router.add_get("/api/orders/{order_id}/book.pdf", get_pdf)
     app.router.add_post("/api/feedback", post_feedback)
+    app.router.add_get("/api/payment/qr", get_payment_qr)
+    app.router.add_post("/api/orders/{order_id}/receipt", post_receipt)
+    app.router.add_post("/api/orders/{order_id}/cancel", cancel_order)
+    app.router.add_get("/api/admin/payments", admin_payments)
+    app.router.add_get("/api/admin/receipts/{order_id}.jpg", admin_receipt)
+    app.router.add_post("/api/admin/orders/{order_id}/approve", admin_approve)
+    app.router.add_post("/api/admin/orders/{order_id}/reject", admin_reject)
+    app.router.add_post("/api/admin/settings", admin_settings)
+    app.router.add_post("/api/admin/qr", admin_qr)
     if WEBAPP_DIR.exists():
         app.router.add_static("/static/", WEBAPP_DIR, follow_symlinks=False)
     return app
