@@ -384,96 +384,17 @@
     appearance: {
       optional: true,
       title: () => 'Как выглядит ' + nameShown() + '?',
-      hint: () => 'Необязательно, но тогда герой на картинках будет очень похож на малыша.',
-      body: () => [
+      hint: () => (S.cfg.photo_supported
+        ? 'Сфотографируйте малыша, и художник нарисует героя на него похожим. Это необязательно: можно просто описать словами.'
+        : 'Необязательно, но тогда герой на картинках будет очень похож на малыша.'),
+      body: () => (S.cfg.photo_supported ? '<div class="photo-box" id="photo-box"></div><p class="or-line"><span>или опишите словами</span></p>' : '') + [
         ['hair', 'Волосы', 'Например: тёмные кудряшки'],
         ['eyes', 'Глаза', 'Например: зелёные'],
         ['clothes', 'Одежда', 'Например: красная куртка и синие джинсы'],
       ].map((f) => '<label class="field"><span class="lbl">' + f[1] + '</span><input class="input" data-field="' + f[0] + '" maxlength="120" autocomplete="off" enterkeyhint="next" placeholder="' + f[2] + '" value="' + esc(S.a[f[0]]) + '"></label>').join(''),
-      isEmpty: () => !S.a.hair.trim() && !S.a.eyes.trim() && !S.a.clothes.trim(),
-      valid: () => true,
-      mount() { focusField(null, 'input'); },
-    },
-    likes: {
-      title: () => 'Что любит ' + nameShown() + '?',
-      hint: () => 'Выберите до 3 любимых занятий — они станут суперсилой героя 💪',
-      body: () => '<div class="chips-meta" id="m-likes"></div><div class="chips" id="chips-likes"></div>' +
-        '<div class="add-row"><input class="input" id="in-like" maxlength="40" autocomplete="off" enterkeyhint="done" placeholder="Своё увлечение" aria-label="Своё увлечение"><button type="button" class="btn secondary small" data-act="like-add" id="b-like" disabled>' + icon('plus') + 'Добавить</button></div>',
-      valid: () => S.a.likes.length >= 1,
-      mount() { refreshChips('likes'); },
-    },
-    traits: {
-      title: () => 'Какой у героя характер?',
-      hint: () => 'Выберите до 3 черт — именно с ними герой справится с трудностями.',
-      body: () => '<div class="chips-meta" id="m-traits"></div><div class="chips" id="chips-traits"></div>',
-      valid: () => S.a.traits.length >= 1,
-      mount() { refreshChips('traits'); },
-    },
-    place: {
-      title: () => 'Где случится приключение?',
-      hint: () => 'Это место появится на всех картинках — выбирайте самое любимое.',
-      auto: true,
-      body: () => '<div class="opts" role="radiogroup" aria-label="Место действия">' +
-        choiceButtons('place', opts().places.map((p) => {
-          const m = PLACE_META[p.id] || PLACE_META.custom;
-          return { id: p.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(p.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
-        }), 'opt') + '</div><div id="custom-place"></div>',
-      valid: () => !!S.a.place && (S.a.place !== 'custom' || S.a.place_custom.trim().length > 0),
-      mount() { refreshCustomPlace(false); },
-    },
-    value: {
-      title: () => 'О чём будет сказка?',
-      hint: () => 'Герой не станет читать нотации — он покажет это своим поступком.',
-      auto: true,
-      body: () => '<div class="opts" role="radiogroup" aria-label="Ценность">' +
-        choiceButtons('value', opts().values.map((v) => {
-          const m = VALUE_META[v.id] || VALUE_META.kindness;
-          return { id: v.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(v.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
-        }), 'opt') + '</div>',
-      valid: () => !!S.a.value,
-    },
-    islamic: {
-      title: () => 'Добавим исламские ценности?',
-      hint: () => 'Это по желанию — можно просто нажать «Дальше».',
-      body: () => {
-        const girl = S.a.gender === 'girl';
-        return '<div class="switch-row"><div class="t"><b id="sw-i">🌙 Исламские ценности</b><p>Скромная одежда героев на картинках, редкие слова «Бисмиллях» и «Альхамдулиллях», никакой магии и волшебных существ.</p></div>' +
-          '<button type="button" class="switch" role="switch" aria-checked="' + S.a.islamic + '" aria-labelledby="sw-i" data-act="switch" data-field="islamic"></button></div>' +
-          (S.a.islamic && girl ? '<div class="switch-row"><div class="t"><b id="sw-h">🧕 Героиня в платке</b><p>Необязательно: на картинках героиня будет в платке.</p></div>' +
-            '<button type="button" class="switch" role="switch" aria-checked="' + S.a.headscarf + '" aria-labelledby="sw-h" data-act="switch" data-field="headscarf"></button></div>' : '');
-      },
-      valid: () => true,
-    },
-    language: {
-      title: () => 'На каком языке читаем?',
-      hint: () => 'Весь текст книги будет на выбранном языке.',
-      auto: true,
-      body: () => '<div class="tiles" role="radiogroup" aria-label="Язык книги">' +
-        choiceButtons('language', [
-          { id: 'ru', html: '<span class="big em" aria-hidden="true">📗</span><b>Русский</b><small>Сказка на русском</small>' },
-          { id: 'ky', html: '<span class="big em" aria-hidden="true">📘</span><b>Кыргызча</b><small>Жомок кыргызча</small>' },
-        ], 'tile') + '</div>' +
-        '<p class="sum-note">Кыргызский текст пишет нейросеть, и пока в нём возможны неточности — его обязательно вычитывает носитель языка 🙏</p>',
-      valid: () => !!S.a.language,
-    },
-    dedication: {
-      optional: true,
-      title: () => 'Что напишем на странице посвящения?',
-      hint: () => 'Страница будет называться «Для ' + nameShown() + '», а под ней — ваши тёплые слова.',
-      body: () => '<label class="field"><span class="lbl" id="l-ded">Посвящение</span><textarea class="textarea" id="in-ded" data-field="dedication" maxlength="120" rows="4" aria-labelledby="l-ded" aria-describedby="c-ded" placeholder="Например: Любимому сыну от мамы и папы 💛">' + esc(S.a.dedication) + '</textarea></label>' +
-        '<div class="counter" id="c-ded">' + S.a.dedication.length + '/120</div>',
-      isEmpty: () => !S.a.dedication.trim(),
-      valid: () => true,
-      mount() { focusField('in-ded'); },
-    },
-    photo: {
-      optional: true,
-      title: () => 'Добавим фото малыша?',
-      hint: () => 'Необязательно. Художник нарисует героя похожим на ребёнка 📸',
-      body: () => '<div class="photo-box" id="photo-box"></div>',
-      isEmpty: () => !S.photo,
+      isEmpty: () => !S.photo && !S.a.hair.trim() && !S.a.eyes.trim() && !S.a.clothes.trim(),
       valid: () => !S.photo || S.a.photo_consent,
-      mount() { refreshPhoto(); },
+      mount() { if (S.cfg.photo_supported) refreshPhoto(); else focusField(null, 'input'); },
     },
     summary: {
       title: () => 'Всё готово к созданию! 🎉',
@@ -496,7 +417,7 @@
     const traits = opts().traits.filter((t) => a.traits.includes(t.id)).map(traitLabel).join(', ');
     const value = (opts().values.find((v) => v.id === a.value) || {}).label || '';
     const lang = (opts().languages.find((l) => l.id === a.language) || {}).label || '';
-    const look = [a.hair, a.eyes, a.clothes].map((x) => x.trim()).filter(Boolean).join('; ');
+    const look = [S.photo ? 'по фото' : '', a.hair, a.eyes, a.clothes].map((x) => x.trim()).filter(Boolean).join('; ');
     const rows = [
       ['name', 'Имя', nameClean()],
       ['age', 'Возраст', a.age + ' ' + plural(a.age, ['год', 'года', 'лет'])],
@@ -510,7 +431,6 @@
       ['language', 'Язык', lang],
       ['dedication', 'Посвящение', a.dedication.trim() || 'нет'],
     ];
-    if (S.steps.includes('photo')) rows.push(['photo', 'Фото', S.photo ? 'Добавлено' : 'Без фото']);
     const left = S.cfg.limits.remaining_today;
     const warn = S.cfg.privacy_warning ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(S.cfg.privacy_warning) + '</span></div>' : '';
     return warn + '<ul class="summary">' + rows.map((r) => {
@@ -584,8 +504,9 @@
     if (!box) return;
     const note = '<p class="privacy-note">Фото используется только для этой книги: его получает сервис, который рисует иллюстрации. Мы удаляем фото сразу после создания книги 🔒</p>';
     if (!S.photo) {
-      box.innerHTML = '<button type="button" class="photo-pick" data-act="photo-pick"><span class="big em" aria-hidden="true">📸</span>Выбрать фото</button>' +
-        '<input type="file" id="file" accept="image/*" hidden>' + note;
+      box.innerHTML = '<div class="photo-btns"><label class="photo-pick" for="file-cam" tabindex="0"><span class="big em" aria-hidden="true">📸</span>Сфотографировать</label>' +
+        '<label class="photo-pick alt" for="file" tabindex="0"><span class="big em" aria-hidden="true">🖼️</span>Выбрать из галереи</label></div>' +
+        '<input type="file" class="vh" id="file-cam" accept="image/*" capture="user"><input type="file" class="vh" id="file" accept="image/*">' + note;
     } else {
       box.innerHTML = '<div class="photo-prev"><img src="' + S.photoUrl + '" alt="Выбранное фото"><div class="t">Фото добавлено 👍</div><button type="button" class="btn ghost small" data-act="photo-remove">Убрать</button></div>' +
         '<label class="check-row"><input type="checkbox" id="consent" data-field="photo_consent"' + (S.a.photo_consent ? ' checked' : '') + '><span>Я родитель и согласен(на) на обработку фото для создания книги</span></label>' + note;
@@ -634,7 +555,6 @@
   /* --- навигация по шагам --- */
   function buildSteps() {
     const list = ['name', 'age', 'gender', 'appearance', 'likes', 'traits', 'place', 'value', 'islamic', 'language', 'dedication'];
-    if (S.cfg.photo_supported) list.push('photo');
     list.push('summary');
     return list;
   }
@@ -783,7 +703,7 @@
       }
     }
   }
-  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', place: 'place', place_custom: 'place', value: 'value', language: 'language', dedication: 'dedication', photo: 'photo', photo_consent: 'photo' };
+  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', place: 'place', place_custom: 'place', value: 'value', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
 
   /* ===================================================================== ожидание */
   const STAGES = [['✍️', 'Пишу сказку'], ['🖌️', 'Рисую обложку'], ['🎨', 'Иллюстрации'], ['📖', 'Собираю книгу']];
@@ -1125,8 +1045,8 @@
         '<li><span class="n">3</span><span>Нажмите «Отправить чек» внизу. Мы проверим оплату и сразу начнём писать сказку ✨</span></li></ol>') +
       '</div>' +
       '<footer class="footer"><p class="form-error" id="pay-error" role="alert" hidden></p>' +
-      '<input type="file" id="receipt-file" accept="image/*" hidden>' +
-      (pay.qr_url ? '<button type="button" class="btn" data-act="receipt-pick">' + icon('clip') + (sent ? 'Отправить другой чек' : 'Отправить чек') + '</button>' : '') +
+      '<input type="file" class="vh" id="receipt-file" accept="image/*">' +
+      (pay.qr_url ? '<label class="btn" id="receipt-btn" for="receipt-file" tabindex="0">' + icon('clip') + (sent ? 'Отправить другой чек' : 'Отправить чек') + '</label>' : '') +
       '<button type="button" class="btn ghost small cancel-link" data-act="cancel-unpaid">Отменить заказ</button></footer></section>';
     window.scrollTo(0, 0);
     payPoll(token, pay);
@@ -1153,8 +1073,8 @@
 
   async function uploadReceipt(file) {
     if (!file) return;
-    const btn = $('[data-act="receipt-pick"]');
-    if (btn) { btn.classList.add('busy'); btn.disabled = true; }
+    const btn = document.getElementById('receipt-btn');
+    if (btn) btn.classList.add('busy');
     const err = document.getElementById('pay-error'); if (err) err.hidden = true;
     try {
       let blob;
@@ -1165,7 +1085,7 @@
       haptic.ok();
       showPay(S.orderId);
     } catch (e) {
-      if (btn) { btn.classList.remove('busy'); btn.disabled = false; }
+      if (btn) btn.classList.remove('busy');
       showPayError(e.message);
     }
   }
@@ -1273,8 +1193,8 @@
       '<div class="switch-row"><div class="t"><b id="sw-pay">💳 Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, сказка создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-pay" aria-checked="' + !!st.enabled + '" data-act="pay-switch"' + (st.has_qr ? '' : ' disabled') + '></button></div>' +
       '<h2 class="a-sub">Ваш QR-код</h2>' + qr +
-      '<input type="file" id="qr-file" accept="image/*" hidden>' +
-      '<button type="button" class="btn secondary small" data-act="qr-upload">' + icon('upload') + (st.has_qr ? 'Заменить QR-код' : 'Загрузить QR-код') + '</button>' +
+      '<input type="file" class="vh" id="qr-file" accept="image/*">' +
+      '<label class="btn secondary small" id="qr-btn" for="qr-file" tabindex="0">' + icon('upload') + (st.has_qr ? 'Заменить QR-код' : 'Загрузить QR-код') + '</label>' +
       '<label class="field"><span class="lbl">Цена (показывается покупателю)</span><input class="input" id="set-price" type="text" maxlength="40" value="' + esc(st.price_text) + '" placeholder="499 сом"></label>' +
       '<label class="field"><span class="lbl">Подсказка для покупателя</span><textarea class="textarea" id="set-text" maxlength="400" rows="4" placeholder="' + esc(st.default_instructions) + '">' + esc(st.instructions) + '</textarea></label>' +
       '<p class="form-error" id="set-error" role="alert" hidden></p><p class="saved" id="set-saved" role="status" hidden>Сохранено ✓</p>' +
@@ -1331,8 +1251,8 @@
 
   async function uploadQr(file) {
     if (!file) return;
-    const btn = $('[data-act="qr-upload"]');
-    if (btn) { btn.classList.add('busy'); btn.disabled = true; }
+    const btn = document.getElementById('qr-btn');
+    if (btn) btn.classList.add('busy');
     try {
       const form = new FormData();
       form.append('qr', file, file.name || 'qr.png');
@@ -1341,7 +1261,7 @@
       haptic.ok();
       renderAdmin(true);
     } catch (e) {
-      if (btn) { btn.classList.remove('busy'); btn.disabled = false; }
+      if (btn) btn.classList.remove('busy');
       showAdminToast(e.message);
     }
   }
@@ -1371,7 +1291,6 @@
       $('.body').innerHTML = STEP.islamic.body();
       const again = $('[data-field="' + field + '"]'); if (again) again.focus({ preventScroll: true });
     },
-    'photo-pick': () => { const f = document.getElementById('file'); if (f) f.click(); },
     'photo-remove': () => { if (S.photoUrl) URL.revokeObjectURL(S.photoUrl); S.photo = null; S.photoUrl = null; S.a.photo_consent = false; refreshPhoto(); },
     retry: () => { if (S.retry) S.retry(); else boot(); },
     'retry-order': async () => { await refreshConfig(); S.a.name ? go(S.steps.length - 1, 'back') : showWelcome(); },
@@ -1385,7 +1304,6 @@
     'fb-buy': (el) => { S.fb.would_pay = S.fb.would_pay === el.dataset.v ? null : el.dataset.v; haptic.select(); syncFeedback(); },
     'fb-send': sendFeedback,
     again,
-    'receipt-pick': () => { const f = document.getElementById('receipt-file'); if (f) f.click(); },
     'cancel-unpaid': cancelUnpaid,
     'qr-zoom': zoomQr,
     'qr-save': saveQr,
@@ -1397,7 +1315,6 @@
     reject: rejectPayment,
     'zoom-img': (el) => zoomReceipt(el.dataset.src),
     'pay-switch': (el) => { S.admin.settings.enabled = !S.admin.settings.enabled; el.setAttribute('aria-checked', String(S.admin.settings.enabled)); haptic.select(); },
-    'qr-upload': () => { const f = document.getElementById('qr-file'); if (f) f.click(); },
     'settings-save': saveAdminSettings,
   };
 
@@ -1434,12 +1351,13 @@
   });
 
   document.addEventListener('change', (ev) => {
-    if (ev.target.id === 'file') onPhotoChosen(ev.target.files && ev.target.files[0]);
+    if (ev.target.id === 'file' || ev.target.id === 'file-cam') onPhotoChosen(ev.target.files && ev.target.files[0]);
     if (ev.target.id === 'receipt-file') { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; uploadReceipt(f); }
     if (ev.target.id === 'qr-file') { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; uploadQr(f); }
   });
 
   document.addEventListener('keydown', (ev) => {
+    if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.tagName === 'LABEL' && ev.target.htmlFor) { ev.preventDefault(); const f = document.getElementById(ev.target.htmlFor); if (f) f.click(); return; }
     if (ev.key !== 'Enter' || ev.isComposing) return;
     const el = ev.target;
     if (el.id === 'in-like') { ev.preventDefault(); addCustomLike(); return; }

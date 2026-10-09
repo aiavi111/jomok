@@ -298,6 +298,11 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
   font-size: 17px; font-weight: 900;
 }
 .photo-pick .big { font-size: 44px; line-height: 1; }
+.photo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.photo-btns .photo-pick { min-height: 132px; padding: 12px 8px; text-align: center; font-size: 16px; line-height: 1.2; }
+.photo-pick.alt { background: var(--surface); border-color: var(--line); color: var(--fg); }
+.or-line { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--muted); font-size: 14px; font-weight: 800; }
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 2px; background: var(--line); border-radius: 1px; }
 .photo-prev { display: flex; align-items: center; gap: 14px; padding: 12px; border-radius: 22px; background: var(--surface); border: 2px solid var(--line); }
 .photo-prev img { width: 80px; height: 80px; border-radius: 16px; object-fit: cover; }
 .photo-prev .t { flex: 1; font-size: 16px; font-weight: 800; }
@@ -617,3 +622,7 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
   .ract { grid-template-columns: 1fr; }
   .qr-card { width: 76vw; }
 }
+
+/* поле выбора файла спрятано, но остаётся настоящим: подпись-кнопка (label) открывает системный выбор файла */
+.vh { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+label.btn, label.photo-pick { cursor: pointer; user-select: none; -webkit-user-select: none; }

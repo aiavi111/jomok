@@ -168,3 +168,12 @@ async def test_system_prompt_demands_a_real_story_with_meaning(profile):
                    "смешной привычкой", "Прямая речь", "Страницы без нравоучений", "не штамп", "В текстах страниц их не описывай", "Имя героя не повторяй"):
         assert phrase in system, phrase
     assert system.index("Качество сказки") < system.index("Схема JSON")
+
+
+async def test_system_prompt_tells_writer_not_to_invent_looks_when_photo_is_attached():
+    from app.profile import Profile
+    from app.prompts import build_system_prompt
+    from .conftest import SAMPLE
+    with_photo = build_system_prompt(Profile.from_payload(SAMPLE, has_photo=True))
+    without = build_system_prompt(Profile.from_payload(SAMPLE))
+    assert "the child from the reference photo" in with_photo and "the child from the reference photo" not in without
