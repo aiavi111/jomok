@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Sequence
 
+from ..layout import calm_side, parse_size
 from ..placeholder import draw_placeholder
 from .base import ImageProvider
+
+_PAGE_NUMBER = re.compile(r"(\d+)\s*$")
 
 
 class MockImageProvider(ImageProvider):
@@ -22,4 +26,7 @@ class MockImageProvider(ImageProvider):
         if self.delay:
             await asyncio.sleep(self.delay)
         caption = "ЗАГЛУШКА" + (f" · фото {len(refs)} шт." if refs else "")
-        return await asyncio.to_thread(draw_placeholder, label or "Иллюстрация", prompt, prompt, caption=caption)
+        number = _PAGE_NUMBER.search(label or "")
+        side = calm_side(int(number.group(1))) if number else None     # «Страница 3» → спокойная половина справа
+        return await asyncio.to_thread(draw_placeholder, label or "Иллюстрация", prompt, prompt, caption=caption,
+                                       size=parse_size(size), calm_side=side)

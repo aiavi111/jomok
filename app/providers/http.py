@@ -17,7 +17,7 @@ from ..logging_setup import redact
 
 log = logging.getLogger(__name__)
 
-TEXT_TIMEOUT = httpx.Timeout(120.0, connect=15.0)
+TEXT_TIMEOUT = httpx.Timeout(300.0, connect=15.0)    # «думающие» модели с кыргызским текстом отвечают дольше двух минут
 IMAGE_TIMEOUT = httpx.Timeout(300.0, connect=15.0)
 MAX_ATTEMPTS = 4
 BASE_DELAY = 2.0

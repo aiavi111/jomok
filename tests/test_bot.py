@@ -90,9 +90,10 @@ async def test_start_sends_welcome_with_web_app_button(service):
     bot = make_bot(session)
     await make_dp(WEBAPP, service).feed_update(bot, command_update(bot, "/start"))
     (message,) = sent_messages(session)
-    assert "персональные сказки" in message.text and "Bala story bot" in message.text and PAGES_TEXT in message.text
+    assert "персональные книги" in message.text and "Bala story bot" in message.text and PAGES_TEXT in message.text
+    assert "тему" in message.text and "герои" in message.text           # родитель может сказать, какие тема и герои нужны
     button = message.reply_markup.inline_keyboard[0][0]
-    assert button.text == BUTTON_TEXT and "Создать сказку" in button.text
+    assert button.text == BUTTON_TEXT and "Создать книгу" in button.text
     assert button.web_app.url == WEBAPP and button.url is None
 
 
@@ -214,6 +215,18 @@ def test_profile_texts_fit_telegram_limits_and_are_lively():
         assert 3 <= len(command.description) <= 256 and command.command.islower()
     assert [c.command for c in PUBLIC_COMMANDS] == ["start", "help"] and [c.command for c in ADMIN_COMMANDS] == ["admin", "id"]
     assert "<b>" in WELCOME and WELCOME.count("<b>") == WELCOME.count("</b>")
+
+
+def test_bot_says_book_not_tale_and_tells_parents_they_can_choose_theme_and_heroes():
+    from app.bot import CLOSED_REMINDER, granted_text
+    texts = [WELCOME, HELP, DESCRIPTION, SHORT_DESCRIPTION, BUTTON_TEXT, CLOSED_REMINDER, granted_text(2)]
+    texts += [c.description for c in PUBLIC_COMMANDS + ADMIN_COMMANDS]
+    for text in texts:
+        assert "сказк" not in text.lower() and "сказок" not in text.lower(), text
+    assert BUTTON_TEXT == "✨ Создать книгу" and PUBLIC_COMMANDS[0].description == "✨ Создать книгу"
+    for text in (WELCOME, HELP, DESCRIPTION, granted_text(2)):
+        assert "тем" in text and "геро" in text, text                 # родитель может сказать, какие тема и герои нужны
+    assert len(DESCRIPTION) <= 512 and len(SHORT_DESCRIPTION) <= 120
 
 
 def test_bot_name_and_texts_describe_personal_links_and_page_count_of_the_pdf():

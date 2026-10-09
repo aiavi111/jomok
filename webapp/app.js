@@ -1,4 +1,4 @@
-/* Персональная сказка — Mini App. Одна страница, без сборки. */
+/* Персональная книга — Mini App. Одна страница, без сборки. */
 (() => {
   'use strict';
 
@@ -110,11 +110,46 @@
     respect_elders: { e: '👵', hue: '#ff6fb5', sub: 'слушать и помогать старшим' },
     courage: { e: '🦁', hue: '#ff8a3d', sub: 'поступать правильно, когда страшно' },
   };
+  // темы книги: эмодзи и цвет плитки (подпись и подсказку отдаёт сервер в options.topics)
+  const TOPIC_META = {
+    adventure: { e: '🧭', hue: '#7a5cff' },
+    dinosaurs: { e: '🦖', hue: '#36d6a8' },
+    space: { e: '🚀', hue: '#5b8def' },
+    animals: { e: '🐻', hue: '#ff8a3d' },
+    superheroes: { e: '🦸', hue: '#ff7b6b' },
+    pirates: { e: '🏴‍☠️', hue: '#3a4a6b' },
+    sea: { e: '🌊', hue: '#3fa9f5' },
+    friends: { e: '🤝', hue: '#ff6fb5' },
+    kindness: { e: '💛', hue: '#ffb020' },
+    life_lesson: { e: '🪥', hue: '#22c4c4' },
+    custom: { e: '✏️', hue: '#ff7b6b' },
+  };
+  // миры «как в мультфильме» (подпись, подсказку и эмодзи отдаёт сервер в options.worlds; здесь только цвет плитки и запасное эмодзи)
+  const WORLD_META = {
+    forest_house: { e: '🏡', hue: '#36d6a8' },
+    rescue_team: { e: '🚒', hue: '#ff7b6b' },
+    workshop_helpers: { e: '🛠️', hue: '#ffb020' },
+    ninja_animals: { e: '🥷', hue: '#7a5cff' },
+    caped_hero: { e: '🦸', hue: '#3fa9f5' },
+    kingdom: { e: '👑', hue: '#ff6fb5' },
+    dino_friend: { e: '🦕', hue: '#22c493' },
+    space_crew: { e: '🚀', hue: '#5b8def' },
+    builders: { e: '🚜', hue: '#ff8a3d' },
+    mountain_friends: { e: '🏔️', hue: '#22c4c4' },
+    custom: { e: '✏️', hue: '#ff7b6b' },
+  };
+  // стили картинок (подпись, подсказку и эмодзи отдаёт сервер в options.styles; здесь только запасное эмодзи и цвет акцента)
+  const STYLE_META = {
+    cartoon3d: { e: '🧸', hue: '#ffb020' },
+    flat2d: { e: '✏️', hue: '#3fa9f5' },
+    realistic: { e: '📷', hue: '#8a8f98' },
+  };
   const LIKE_EMOJI = { 'Лошади': '🐴', 'Животные': '🐾', 'Динозавры': '🦖', 'Машинки': '🚗', 'Рисование': '🎨', 'Музыка': '🎵', 'Футбол': '⚽', 'Куклы': '🧸', 'Космос': '🚀', 'Конструктор': '🧱', 'Книги': '📚', 'Сладости': '🍬' };
   const TRAIT_EMOJI = { kind: '💛', brave: '🦁', curious: '🔍', funny: '😄', shy: '🌸', stubborn: '💪', caring: '🤗' };
   const STEP_META = {
     name: ['👶', '#7a5cff'], age: ['🎂', '#ff7b6b'], gender: ['🧸', '#3fa9f5'], appearance: ['🎨', '#ff6fb5'],
     likes: ['❤️', '#ff7b6b'], traits: ['🌟', '#ffb020'], place: ['🗺️', '#36d6a8'], value: ['🧭', '#7a5cff'],
+    topic: ['📚', '#ff8a3d'], world: ['🌈', '#ff6fb5'], style: ['🖼️', '#5b8def'], extras: ['💭', '#22c4c4'],
     islamic: ['🌙', '#5b8def'], language: ['🌍', '#3fa9f5'], dedication: ['💌', '#ff6fb5'], photo: ['📸', '#22c4c4'],
     summary: ['🎁', '#ffb020'],
   };
@@ -217,8 +252,8 @@
   function freshAnswers(keep) {
     return Object.assign({
       name: '', age: null, gender: null, hair: '', eyes: '', clothes: '', likes: [], traits: [],
-      place: null, place_custom: '', value: null, islamic: false, headscarf: false, language: null,
-      dedication: '', photo_consent: false,
+      place: null, place_custom: '', value: null, topic: null, topic_custom: '', world: null, cartoons: '', style: null, request: '', favorites: '',
+      islamic: false, headscarf: false, language: null, dedication: '', photo_consent: false,
     }, keep || {});
   }
 
@@ -237,6 +272,44 @@
     if (S.a.place === 'custom') return S.a.place_custom.trim();
     const p = opts().places.find((x) => x.id === S.a.place);
     return p ? p.label : '';
+  };
+
+  // Темы книги и пожелания: бэкенд мог ещё не прислать новые поля, поэтому читаем осторожно
+  const topicList = () => (S.cfg && S.cfg.options && Array.isArray(S.cfg.options.topics) ? S.cfg.options.topics : []);
+  const defaultTopic = () => {
+    const list = topicList();
+    const want = S.cfg && S.cfg.options && S.cfg.options.default_topic;
+    return (list.find((t) => t.id === want) || list.find((t) => t.id === 'adventure') || list[0] || {}).id || null;
+  };
+  const topicLabel = () => {
+    if (S.a.topic === 'custom') return S.a.topic_custom.trim() || 'Своя тема';
+    const t = topicList().find((x) => x.id === S.a.topic);
+    return t ? t.label : '';
+  };
+  // Миры любимых мультфильмов: если сервер не прислал options.worlds (или список пуст), шаг и поля анкеты пропускаем
+  const worldList = () => (S.cfg && S.cfg.options && Array.isArray(S.cfg.options.worlds) ? S.cfg.options.worlds.filter((w) => w && w.id) : []);
+  const worldPicked = () => worldList().find((w) => w.id === S.a.world) || null;
+  const worldLabel = () => { const w = worldPicked(); return w ? (w.label || '') : ''; };
+  // Стиль картинок: если сервер не прислал options.styles (или список пуст), шаг пропускаем и поле не шлём
+  const styleList = () => (S.cfg && S.cfg.options && Array.isArray(S.cfg.options.styles) ? S.cfg.options.styles.filter((x) => x && x.id) : []);
+  const defaultStyle = () => {
+    const list = styleList();
+    const want = S.cfg && S.cfg.options && S.cfg.options.default_style;
+    return (list.find((x) => x.id === want) || list.find((x) => x.id === 'cartoon3d') || list[0] || {}).id || null;
+  };
+  const stylePicked = () => styleList().find((x) => x.id === S.a.style) || null;
+  const styleLabel = () => { const x = stylePicked(); return x ? (x.label || '') : ''; };
+  const limitOf = (key, fallback) => {
+    const v = S.cfg && S.cfg.limits && Number(S.cfg.limits[key]);
+    return v > 0 ? v : fallback;
+  };
+  const requestMax = () => limitOf('request_max', 300);
+  const favoritesMax = () => limitOf('favorites_max', 120);
+  const cartoonsMax = () => limitOf('cartoons_max', 120);
+  const textMax = () => limitOf('text_max', 120);
+  const pagesCount = () => {
+    const n = S.cfg && S.cfg.book_format && Number(S.cfg.book_format.pages);
+    return n > 0 ? n : 8;
   };
 
   // Доступ и печать: бэкенд мог ещё не прислать новые поля, поэтому всё читается осторожно
@@ -282,7 +355,7 @@
     setBackButton(false);
     setHeader('bg_color');
     stateScreen('📱', 'Откройте приложение в Telegram',
-      'Эта страница работает внутри Telegram. Найдите нашего бота и нажмите кнопку «Создать сказку» — там всё и случится ✨', [],
+      'Эта страница работает внутри Telegram. Найдите нашего бота и нажмите кнопку «Создать книгу» — там всё и случится ✨', [],
       '<details><summary>Для владельца бота</summary><pre>Чтобы проверить в обычном браузере, поставьте DEV_MODE=1 в файле .env и перезапустите сервер.</pre></details>');
   }
 
@@ -313,7 +386,7 @@
 
   /* ===================================================================== приветствие */
   const EXAMPLE = [
-    { img: '/static/img/ex-cover.jpg', alt: 'Обложка: мальчик в синей жилетке с карандашом на джайлоо', cover: true, title: 'Айдар и Золотой Конь', sub: 'Сказка для Айдара' },
+    { img: '/static/img/ex-cover.jpg', alt: 'Обложка: мальчик в синей жилетке с карандашом на джайлоо', cover: true, title: 'Айдар и Золотой Конь', sub: 'Книга для Айдара' },
     { img: '/static/img/ex-p1.jpg', alt: 'Мальчик читает книгу у юрты', text: 'Шестилетний Айдар жил в уютной юрте на красивом зелёном джайлоо. Больше всего на свете мальчик любил рисовать весёлые картинки и любоваться быстрыми лошадьми.' },
     { img: '/static/img/ex-p3.jpg', alt: 'Мальчик и сурок на горной тропинке', text: 'Около горной тропинки Айдар встретил пушистого сурка. Зверёк сидел на камне и горько плакал, потому что потерял свой любимый круглый камушек.' },
     { img: '/static/img/ex-p4.jpg', alt: 'Мальчик на бревенчатом мостике над ручьём', text: 'Путь лежал через узкий мостик над весёлым журчащим ручьём. Айдар смело зашагал вперёд, рассматривая цветы и бабочек вокруг.' },
@@ -349,11 +422,11 @@
     app.innerHTML = '<section class="screen welcome">' +
       '<header class="hero"><div class="hero-art">' + heroScene() + '</div>' +
       '<div class="hero-text"><div class="pills">' + pills.join('') + '</div>' +
-      '<h1>Сказка, где главный герой — ваш малыш ✨</h1>' +
+      '<h1>Книга, где главный герой — ваш малыш ✨</h1>' +
       '<p class="lead">Придумаем историю с добрым смыслом, нарисуем иллюстрации и пришлём красивую PDF-книгу прямо в Telegram.</p></div></header>' +
       '<div class="sheet">' +
       '<section class="block"><h2>Вот так выглядит книга 📖</h2><div class="rail" tabindex="0" aria-label="Страницы примера">' + rail + '</div>' +
-      '<p class="cap">Пример: сказка для Айдара, шесть лет. Такую же вы получите для своего малыша.</p></section>' +
+      '<p class="cap">Пример: книга для Айдара, шесть лет. Такую же вы получите для своего малыша.</p></section>' +
       '<section class="block"><h2>Чем она особенная 💫</h2><ul class="perks">' +
       perk('👶', '#7a5cff', 'Герой — ваш малыш', 'Имя, характер и увлечения вплетены в сюжет, а на картинках — похожая внешность') +
       perk('💛', '#ffb020', 'Добрый смысл без нравоучений', 'Герой сам делает выбор — и ребёнок понимает, что такое доброта, честность и смелость') +
@@ -361,14 +434,14 @@
       perk('🌙', '#5b8def', 'Исламский режим — по желанию', 'Скромная одежда героев, светлые традиции и никакой магии') +
       '</ul></section>' +
       '<section class="block"><h2>Как это работает 🧭</h2><ol class="timeline">' +
-      '<li><span class="n">1</span><div><b>Отвечаете на вопросы</b><span class="d">Всего 1–2 минуты: имя, возраст, любимое и характер</span></div></li>' +
+      '<li><span class="n">1</span><div><b>Отвечаете на вопросы</b><span class="d">Пара минут: имя, возраст, любимое, характер, тема книги и пожелания</span></div></li>' +
       '<li><span class="n">2</span><div><b>Мы пишем и рисуем</b><span class="d">' + second + '</span></div></li>' +
-      '<li><span class="n">3</span><div><b>Получаете книгу в чат 💌</b><span class="d">Обложка, посвящение, 8 страниц с иллюстрациями и тёплое пожелание</span></div></li>' +
+      '<li><span class="n">3</span><div><b>Получаете книгу в чат 💌</b><span class="d">Обложка, посвящение, ' + pagesCount() + ' ' + plural(pagesCount(), ['страница', 'страницы', 'страниц']) + ' с иллюстрациями во весь разворот и тёплое пожелание</span></div></li>' +
       '</ol></section>' + (notice ? '<div class="block">' + notice + '</div>' : '') +
       '<p class="price">' + priceLine + '</p>' + credits + '</div>' +
       '<footer class="footer">' +
-      (left < 1 ? '<p class="form-error" role="alert">Лимит на сегодня исчерпан. Приходите завтра — малыша ждёт новая сказка 🌙</p>' : '') +
-      '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + '>✨ Создать сказку</button>' +
+      (left < 1 ? '<p class="form-error" role="alert">Лимит на сегодня исчерпан. Приходите завтра — малыша ждёт новая книга 🌙</p>' : '') +
+      '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + '>✨ Создать книгу</button>' +
       (c.is_admin ? '<button type="button" class="btn ghost small admin-link" data-act="open-admin">' + icon('gear') + 'Админка</button>' : '') + '</footer>' +
       '</section>';
     window.scrollTo(0, 0);
@@ -399,16 +472,16 @@
     },
     age: {
       title: () => 'Сколько малышу лет?',
-      hint: () => 'Подберём длину и сложность сказки — чтобы было в самый раз.',
+      hint: () => 'Подберём длину и сложность книги — чтобы было в самый раз.',
       auto: true,
       body: () => '<div class="age-grid" role="radiogroup" aria-label="Возраст">' +
         choiceButtons('age', [3, 4, 5, 6, 7, 8, 9].map((n) => ({ id: n, html: n })), 'age') + '</div>' +
-        '<p class="age-note">Сказки подходят детям от 3 до 9 лет 🌈</p>',
+        '<p class="age-note">Книги подходят детям от 3 до 9 лет 🌈</p>',
       valid: () => S.a.age != null,
     },
     gender: {
       title: () => 'Кто у нас главный герой?',
-      hint: () => 'Чтобы в сказке всё звучало правильно: «он пошёл» или «она пошла».',
+      hint: () => 'Чтобы в книге всё звучало правильно: «он пошёл» или «она пошла».',
       auto: true,
       body: () => '<div class="tiles" role="radiogroup" aria-label="Пол ребёнка">' +
         choiceButtons('gender', [
@@ -457,10 +530,10 @@
           return { id: p.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(p.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
         }), 'opt') + '</div><div id="custom-place"></div>',
       valid: () => !!S.a.place && (S.a.place !== 'custom' || S.a.place_custom.trim().length > 0),
-      mount() { refreshCustomPlace(false); },
+      mount() { refreshCustom('place', false); },
     },
     value: {
-      title: () => 'О чём будет сказка?',
+      title: () => 'Чему научит книга?',
       hint: () => 'Герой не станет читать нотации — он покажет это своим поступком.',
       auto: true,
       body: () => '<div class="opts" role="radiogroup" aria-label="Ценность">' +
@@ -469,6 +542,65 @@
           return { id: v.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(v.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
         }), 'opt') + '</div>',
       valid: () => !!S.a.value,
+    },
+    topic: {
+      title: () => 'Какую книгу хотите?',
+      hint: () => 'Тема задаёт сюжет: про что будут приключения героя. Главным героем останется ваш малыш.',
+      auto: true,
+      body: () => '<div class="opts" role="radiogroup" aria-label="Тема книги">' +
+        choiceButtons('topic', topicList().map((t) => {
+          const m = TOPIC_META[t.id] || { e: t.emoji || '✨', hue: '#7a5cff' };
+          return { id: t.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(t.label) + '</b>' + (t.hint ? '<small>' + esc(t.hint) + '</small>' : '') + '</span>' + icon('check', 'tick') };
+        }), 'opt') + '</div><div id="custom-topic"></div>',
+      valid: () => !!S.a.topic && (S.a.topic !== 'custom' || S.a.topic_custom.trim().length > 0),
+      mount() { refreshCustom('topic', false); },
+    },
+    // Необязательный шаг: «как в мультфильме» без чужих героев — выбираем оригинальный мир по духу; автопереход выключен, ниже есть поле
+    world: {
+      optional: true,
+      title: () => 'Какой мир любит ' + nameShown() + '?',
+      hint: () => 'Выберите, на что похоже. Герои будут похожи по духу, но свои: чужих мультперсонажей использовать нельзя',
+      body: () => '<div class="opts" role="radiogroup" aria-label="Мир, который любит малыш">' +
+        choiceButtons('world', worldList().map((w) => {
+          const m = WORLD_META[w.id] || { e: '✨', hue: '#7a5cff' };
+          return { id: w.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + esc(w.emoji || m.e) + '</span><span class="t"><b>' + esc(w.label) + '</b>' + (w.hint ? '<small>' + esc(w.hint) + '</small>' : '') + '</span>' + icon('check', 'tick') };
+        }), 'opt') + '</div><div id="custom-world" aria-live="polite"></div>' +
+        '<label class="field tight cartoons"><span class="lbl" id="l-cart">Названия любимых мультиков или героев</span>' +
+        '<input class="input" id="in-cart" data-field="cartoons" maxlength="' + cartoonsMax() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="l-cart" aria-describedby="n-cart c-cart" placeholder="например: Маша и Медведь, Фиксики" value="' + esc(S.a.cartoons) + '"></label>' +
+        '<div class="field-foot"><p class="note" id="n-cart">Мы возьмём характер и настроение, а нарисуем своих героев</p>' +
+        '<span class="counter" id="c-cart">' + S.a.cartoons.length + '/' + cartoonsMax() + '</span></div>',
+      isEmpty: () => !S.a.world && !S.a.cartoons.trim(),
+      valid: () => true,
+      mount() { refreshWorldNote(); const h = $('h1.q'); if (h) h.focus({ preventScroll: true }); },
+    },
+    // Обязательный шаг с предвыбранным значением: повторное нажатие выбор не снимает; карточки покрупнее, слева цветной акцент-превью
+    style: {
+      title: () => 'В каком стиле рисуем книгу?',
+      hint: () => 'Так будут выглядеть все картинки: от обложки до последней страницы.',
+      auto: true,
+      body: () => '<div class="opts styles" role="radiogroup" aria-label="Стиль картинок">' +
+        choiceButtons('style', styleList().map((x) => {
+          const m = STYLE_META[x.id] || { e: '🖼️', hue: '#7a5cff' };
+          return { id: x.id, html: '<span class="e em sty sty-' + esc(x.id) + '" style="--hue:' + m.hue + '" aria-hidden="true">' + esc(x.emoji || m.e) + '</span><span class="t"><b>' + esc(x.label) + '</b>' + (x.hint ? '<small>' + esc(x.hint) + '</small>' : '') + '</span>' + icon('check', 'tick') };
+        }), 'opt style-opt') + '</div>',
+      valid: () => !!stylePicked(),
+    },
+    extras: {
+      optional: true,
+      title: () => 'Что ещё добавить?',
+      hint: () => 'Необязательно: расскажите, что обязательно должно быть в книге. Этот шаг можно пропустить.',
+      body: () => '<label class="field tight"><span class="lbl" id="l-req">Что вы хотите увидеть в книге?</span>' +
+        '<textarea class="textarea" id="in-req" data-field="request" maxlength="' + requestMax() + '" rows="4" aria-labelledby="l-req" aria-describedby="c-req" placeholder="Хочу, чтобы Алихан водил экскаватор и помогал зайчику">' + esc(S.a.request) + '</textarea></label>' +
+        '<div class="counter" id="c-req">' + S.a.request.length + '/' + requestMax() + '</div>' +
+        '<p class="chips-meta ex-meta" id="l-ex">Нажмите, чтобы добавить в текст:</p>' +
+        '<div class="chips ex-chips" id="chips-ex" role="group" aria-labelledby="l-ex">' + requestExamples().map((x, i) =>
+          '<button type="button" class="chip" data-act="req-example" data-i="' + i + '" aria-pressed="' + S.a.request.includes(x.text) + '"><span class="e em" aria-hidden="true">' + x.e + '</span>' + esc(x.label) + '</button>').join('') + '</div>' +
+        '<label class="field tight fav"><span class="lbl" id="l-fav">Любимые герои, животные, игрушки</span>' +
+        '<input class="input" id="in-fav" data-field="favorites" maxlength="' + favoritesMax() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="l-fav" aria-describedby="c-fav" placeholder="например: зайчик, экскаватор, динозавр" value="' + esc(S.a.favorites) + '"></label>' +
+        '<div class="counter" id="c-fav">' + S.a.favorites.length + '/' + favoritesMax() + '</div>' +
+        '<div class="notice" role="note"><span class="em" aria-hidden="true">🎭</span><span>Героев известных мультфильмов мы заменяем на похожих, но оригинальных персонажей.</span></div>',
+      isEmpty: () => !S.a.request.trim() && !S.a.favorites.trim(),
+      valid: () => true,
     },
     islamic: {
       title: () => 'Добавим исламские ценности?',
@@ -488,8 +620,8 @@
       auto: true,
       body: () => '<div class="tiles" role="radiogroup" aria-label="Язык книги">' +
         choiceButtons('language', [
-          { id: 'ru', html: '<span class="big em" aria-hidden="true">📗</span><b>Русский</b><small>Сказка на русском</small>' },
-          { id: 'ky', html: '<span class="big em" aria-hidden="true">📘</span><b>Кыргызча</b><small>Жомок кыргызча</small>' },
+          { id: 'ru', html: '<span class="big em" aria-hidden="true">📗</span><b>Русский</b><small>Книга на русском</small>' },
+          { id: 'ky', html: '<span class="big em" aria-hidden="true">📘</span><b>Кыргызча</b><small>Китеп кыргызча</small>' },
         ], 'tile') + '</div>' +
         '<p class="sum-note">Кыргызский текст пишет нейросеть, и пока в нём возможны неточности — его обязательно вычитывает носитель языка 🙏</p>',
       valid: () => !!S.a.language,
@@ -507,7 +639,7 @@
     summary: {
       title: () => 'Всё готово к созданию! 🎉',
       hint: () => 'Проверьте ответы — любой можно поправить.',
-      cta: () => '✨ Создать сказку',
+      cta: () => '✨ Создать книгу',
       body: () => summaryHtml(),
       valid: () => true,
     },
@@ -520,12 +652,59 @@
     }, 60);
   }
 
+  /* --- подсказки для пожеланий: нажатие вставляет готовую фразу, повторное убирает --- */
+  function requestExamples() {
+    const nm = nameClean() || 'малыш';
+    const girl = S.a.gender === 'girl';
+    return [
+      { e: '🚜', label: 'Экскаватор', text: 'Хочу, чтобы ' + nm + (girl ? ' водила экскаватор и помогала зайчику.' : ' водил экскаватор и помогал зайчику.') },
+      { e: '🦕', label: 'Динозавр', text: 'Пусть в книге будет большой добрый динозавр.' },
+      { e: '🪥', label: 'Зубки и врач', text: 'Про то, как ' + nm + ' чистит зубки и не боится идти к врачу.' },
+      { e: '👵', label: 'Бабушка', text: 'Пусть в книге будут бабушка с дедушкой и тёплые лепёшки.' },
+    ];
+  }
+
+  function syncExamples() {
+    const list = requestExamples();
+    $$('[data-act="req-example"]').forEach((b) => b.setAttribute('aria-pressed', String(S.a.request.includes(list[Number(b.dataset.i)].text))));
+  }
+
+  function addExample(i) {
+    const item = requestExamples()[i];
+    const area = document.getElementById('in-req');
+    if (!item || !area) return;
+    const cur = S.a.request;
+    let next;
+    if (cur.includes(item.text)) {
+      next = cur.replace(item.text, '').replace(/\s{2,}/g, ' ').trim();
+    } else {
+      next = cur.trim() ? cur.trim() + ' ' + item.text : item.text;
+      if (next.length > requestMax()) { showFormError('Не помещается: в этом поле не больше ' + requestMax() + ' символов. Сократите текст.'); return; }
+    }
+    S.a.request = next;
+    area.value = next;
+    const counter = document.getElementById('c-req');
+    if (counter) counter.textContent = next.length + '/' + requestMax();
+    haptic.select();
+    syncExamples();
+    updateFooter();
+  }
+
   function summaryHtml() {
     const a = S.a;
     const traits = opts().traits.filter((t) => a.traits.includes(t.id)).map(traitLabel).join(', ');
     const value = (opts().values.find((v) => v.id === a.value) || {}).label || '';
     const lang = (opts().languages.find((l) => l.id === a.language) || {}).label || '';
     const look = [S.photo ? 'по фото' : '', a.hair, a.eyes, a.clothes].map((x) => x.trim()).filter(Boolean).join('; ');
+    const wishes = !a.request.trim() && !a.favorites.trim()
+      ? [['extras', 'Пожелания', 'нет']]
+      : [a.request.trim() && ['extras', 'Пожелания', a.request.trim()], a.favorites.trim() && ['extras', 'Любимые герои', a.favorites.trim()]].filter(Boolean);
+    // мир и мультики: строка «Мир» есть всегда (даже «не выбран», чтобы её можно было изменить), «Любимые мультики» только если вписаны
+    const world = worldLabel()
+      ? worldLabel() + (a.world === 'custom' && !a.request.trim() ? ': опишите в пожеланиях' : '')
+      : 'не выбран';
+    const cartoons = a.cartoons.trim() ? [['world', 'Любимые мультики', a.cartoons.trim()]] : [];
+    const style = styleLabel() || (styleList().length ? 'не выбран' : '');
     const rows = [
       ['name', 'Имя', nameClean()],
       ['age', 'Возраст', a.age + ' ' + plural(a.age, ['год', 'года', 'лет'])],
@@ -534,7 +713,12 @@
       ['likes', 'Любит', a.likes.join(', ')],
       ['traits', 'Характер', traits],
       ['place', 'Место', placeLabel()],
-      ['value', 'О чём сказка', value],
+      ['value', 'Чему учит книга', value],
+      ['topic', 'Тема книги', topicLabel()],
+      ['world', 'Мир', world],
+      ...cartoons,
+      ['style', 'Стиль', style],
+      ...wishes,
       ['islamic', 'Исламский режим', a.islamic ? (a.gender === 'girl' && a.headscarf ? 'Да, героиня в платке' : 'Да') : 'Нет'],
       ['language', 'Язык', lang],
       ['dedication', 'Посвящение', a.dedication.trim() || 'нет'],
@@ -546,9 +730,9 @@
     const cost = acc && acc.closed && !isAdmin() && typeof acc.credits === 'number'
       ? 'Будет использована 1 книга по вашей ссылке (доступно: ' + acc.credits + '). '
       : (S.cfg.free_in_test ? 'Сейчас тест: книга бесплатна (осталось ' + left + ' из ' + S.cfg.limits.books_per_day + ' на сегодня). ' : 'Цена: ' + esc(S.cfg.price_text) + '. ');
-    return warn + promise + '<ul class="summary">' + rows.map((r) => {
+    return warn + promise + '<ul class="summary">' + rows.filter((r) => S.steps.includes(r[0])).map((r) => {
       const m = STEP_META[r[0]] || ['✨', '#7a5cff'];
-      return '<li><span class="e em" style="--hue:' + m[1] + '" aria-hidden="true">' + m[0] + '</span><span class="k">' + r[1] + '</span><span class="v">' + esc(r[2]) + '</span>' +
+      return '<li><span class="e em" style="--hue:' + m[1] + '" aria-hidden="true">' + m[0] + '</span><span class="k">' + r[1] + '</span><span class="v' + (r[1] === 'Пожелания' || r[1] === 'Любимые мультики' ? ' clamp' : '') + '">' + esc(r[2]) + '</span>' +
         '<button type="button" class="edit" data-act="edit" data-step="' + r[0] + '" aria-label="Изменить: ' + r[1] + '">Изменить</button></li>';
     }).join('') + '</ul>' +
       '<p class="sum-note">' + cost + 'Готовую книгу пришлём в этот чат 💌</p>';
@@ -599,15 +783,33 @@
     refreshChips('likes');
   }
 
-  /* --- место: свой вариант --- */
-  function refreshCustomPlace(focus) {
-    const box = document.getElementById('custom-place');
+  /* --- место и тема: свой вариант (поле появляется под списком) --- */
+  const CUSTOM = {
+    place: { box: 'custom-place', input: 'in-cp', lbl: 'l-cp', label: 'Опишите место', field: 'place_custom', ph: 'Например: сад у бабушки в деревне', max: () => 120 },
+    topic: { box: 'custom-topic', input: 'in-ct', lbl: 'l-ct', label: 'Опишите тему', field: 'topic_custom', ph: 'Например: строим снежную крепость', max: textMax },
+  };
+  function refreshCustom(kind, focus) {
+    const c = CUSTOM[kind];
+    const box = document.getElementById(c.box);
     if (!box) return;
-    if (S.a.place !== 'custom') { box.innerHTML = ''; return; }
+    if (S.a[kind] !== 'custom') { box.innerHTML = ''; return; }
     if (!box.firstChild) {
-      box.innerHTML = '<label class="field custom-place"><span class="lbl" id="l-cp">Опишите место</span><input class="input" id="in-cp" data-field="place_custom" maxlength="120" autocomplete="off" enterkeyhint="next" aria-labelledby="l-cp" placeholder="Например: сад у бабушки в деревне" value="' + esc(S.a.place_custom) + '"></label>';
+      box.innerHTML = '<label class="field custom-place"><span class="lbl" id="' + c.lbl + '">' + c.label + '</span><input class="input" id="' + c.input + '" data-field="' + c.field + '" maxlength="' + c.max() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="' + c.lbl + '" placeholder="' + c.ph + '" value="' + esc(S.a[c.field]) + '"></label>';
     }
-    if (focus) focusField('in-cp');
+    if (focus) {
+      focusField(c.input);
+      setTimeout(() => { const el = document.getElementById(c.input); if (el && S.screen === 'wizard') el.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }, 90);
+    }
+  }
+
+  /* --- мир: для «своего варианта» подсказываем, где его описать (поле отдельно не нужно: пожелания есть на соседнем шаге) --- */
+  function refreshWorldNote() {
+    const box = document.getElementById('custom-world');
+    if (!box) return;
+    if (S.a.world !== 'custom') { box.innerHTML = ''; return; }
+    if (!box.firstChild) {
+      box.innerHTML = '<div class="notice world-note" role="note"><span class="em" aria-hidden="true">✏️</span><span>Свой мир можно описать словами на шаге «Что ещё добавить?»</span></div>';
+    }
   }
 
   /* --- фото --- */
@@ -651,28 +853,47 @@
     return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('blob'))), 'image/jpeg', 0.88));
   }
 
+  const PHOTO_LIMIT = 8 * 1024 * 1024;     // как на сервере (MAX_PHOTO_BYTES)
+  const isPlainPhoto = (file) => /^image\/(jpeg|png|webp)$/i.test(file.type || '') || /\.(jpe?g|png|webp)$/i.test(file.name || '');
+  const isHeic = (file) => /heic|heif/i.test((file.type || '') + ' ' + (file.name || ''));
+
   async function onPhotoChosen(file) {
     if (!file) return;
+    let blob = null;
     try {
-      const blob = await downscale(file, 1024);
-      if (S.photoUrl) URL.revokeObjectURL(S.photoUrl);
-      S.photo = blob; S.photoUrl = URL.createObjectURL(blob); S.a.photo_consent = false;
-      haptic.select();
-      refreshPhoto();
+      blob = await downscale(file, 1024);
     } catch (e) {
-      showFormError('Не получилось открыть это фото. Выберите снимок в формате JPEG или PNG.');
+      // браузер не смог уменьшить снимок (память, редкий формат): обычный JPEG/PNG небольшого размера отправляем как есть,
+      // сервер уменьшит его сам и вернёт понятную ошибку, если не получится
+      if (isPlainPhoto(file) && file.size <= PHOTO_LIMIT) blob = file;
     }
+    if (!blob) {
+      if (S.photo) return;                 // другой снимок уже добавлен (два выбора подряд): запоздалую ошибку не показываем
+      showFormError(isHeic(file)
+        ? 'Это фото в формате HEIC, его не удалось открыть. Выберите другой снимок или включите «Наиболее совместимый» в настройках камеры (Настройки → Камера → Форматы).'
+        : 'Не получилось открыть это фото' + (file.type ? ' (' + file.type + ')' : '') + '. Выберите другой снимок в формате JPEG или PNG.');
+      return;
+    }
+    if (S.photoUrl) URL.revokeObjectURL(S.photoUrl);
+    S.photo = blob; S.photoUrl = URL.createObjectURL(blob); S.a.photo_consent = false;
+    haptic.select();
+    refreshPhoto();
   }
 
   /* --- навигация по шагам --- */
   function buildSteps() {
-    const list = ['name', 'age', 'gender', 'appearance', 'likes', 'traits', 'place', 'value', 'islamic', 'language', 'dedication'];
-    list.push('summary');
+    const list = ['name', 'age', 'gender', 'appearance', 'likes', 'traits', 'place', 'value'];
+    if (topicList().length) list.push('topic');           // старый сервер без тем: шаг пропускаем
+    if (worldList().length) list.push('world');           // старый сервер без миров: шаг пропускаем
+    if (styleList().length) list.push('style');           // старый сервер без стилей: шаг пропускаем
+    list.push('extras', 'islamic', 'language', 'dedication', 'summary');
     return list;
   }
 
   function startWizard(keep) {
     S.a = freshAnswers(keep);
+    if (!S.a.topic) S.a.topic = defaultTopic();
+    if (!stylePicked()) S.a.style = defaultStyle();      // шаг обязательный, но уже с выбранным «3D-мультик»
     if (S.photoUrl) URL.revokeObjectURL(S.photoUrl);
     S.photo = null; S.photoUrl = null;
     S.steps = buildSteps();
@@ -760,13 +981,15 @@
     const field = el.dataset.field;
     let value = el.dataset.value;
     if (field === 'age') value = Number(value);
+    if (field === 'world' && S.a.world === value) value = null;      // шаг необязательный: повторное нажатие снимает выбор
     S.a[field] = value;
     haptic.select();
-    $$('[data-field="' + field + '"]').forEach((b) => b.setAttribute('aria-checked', String(String(b.dataset.value) === String(value))));
-    if (field === 'place') refreshCustomPlace(value === 'custom');
+    $$('[data-field="' + field + '"]').forEach((b) => b.setAttribute('aria-checked', String(value != null && String(b.dataset.value) === String(value))));
+    if (field === 'place' || field === 'topic') refreshCustom(field, value === 'custom');
+    if (field === 'world') refreshWorldNote();
     updateFooter();
     const st = STEP[S.steps[S.idx]];
-    if (st.auto && !(field === 'place' && value === 'custom')) {
+    if (st.auto && value !== 'custom') {                 // «свой вариант»: сначала нужно вписать текст
       const stepId = S.steps[S.idx];
       clearTimeout(S.autoTimer);
       S.autoTimer = setTimeout(() => { if (S.screen === 'wizard' && S.steps[S.idx] === stepId && S.a[field] === value) next(); }, 260);
@@ -776,13 +999,21 @@
   /* --- отправка анкеты --- */
   function payload() {
     const a = S.a;
-    return {
+    const body = {
       name: nameClean(), age: a.age, gender: a.gender,
       appearance: { hair: a.hair.trim(), eyes: a.eyes.trim(), clothes: a.clothes.trim() },
       likes: a.likes, traits: a.traits, place: a.place, place_custom: a.place === 'custom' ? a.place_custom.trim() : '',
-      value: a.value, islamic: a.islamic, headscarf: a.headscarf, language: a.language,
+      value: a.value,
+      topic: a.topic, topic_custom: a.topic === 'custom' ? a.topic_custom.trim() : '', request: a.request.trim(), favorites: a.favorites.trim(),
+      islamic: a.islamic, headscarf: a.headscarf, language: a.language,
       dedication: a.dedication.trim(), photo_consent: !!(S.photo && a.photo_consent),
     };
+    if (worldList().length) {                      // сервер без миров этих полей не знает: не шлём
+      body.world = worldPicked() ? a.world : null; // пропустили шаг: null
+      body.cartoons = a.cartoons.trim();
+    }
+    if (styleList().length) body.style = stylePicked() ? a.style : defaultStyle();   // сервер без стилей поля не знает: не шлём
+    return body;
   }
 
   async function submit() {
@@ -824,13 +1055,13 @@
       }
     }
   }
-  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', place: 'place', place_custom: 'place', value: 'value', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
+  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', place: 'place', place_custom: 'place', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', cartoons: 'world', style: 'style', request: 'extras', favorites: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
 
   /* ===================================================================== ожидание */
-  const STAGES = [['✍️', 'Пишу сказку'], ['🖌️', 'Рисую обложку'], ['🎨', 'Иллюстрации'], ['📖', 'Собираю книгу']];
+  const STAGES = [['✍️', 'Пишу книгу'], ['🖌️', 'Рисую обложку'], ['🎨', 'Иллюстрации'], ['📖', 'Собираю книгу']];
   const TIPS = {
-    '-1': ['Вы в очереди — скоро начнём 🌟', 'Совсем чуть-чуть, и сказочник за дело ✨'],
-    0: ['Подбираю самые тёплые слова 💛', 'Придумываю, как герой сделает правильный выбор 🧭', 'Выбираю добрый и интересный сюжет 🌙', 'Проверяю, чтобы у сказки был светлый конец ✨'],
+    '-1': ['Вы в очереди — скоро начнём 🌟', 'Совсем чуть-чуть, и мы возьмёмся за дело ✨'],
+    0: ['Подбираю самые тёплые слова 💛', 'Придумываю, как герой сделает правильный выбор 🧭', 'Выбираю добрый и интересный сюжет 🌙', 'Проверяю, чтобы у книги был светлый конец ✨'],
     1: ['Рисую героя с любовью 🎨', 'Выбираю самые тёплые краски для обложки 🌅'],
     2: ['Раскрашиваю горы и джайлоо 🏔️', 'Дорисовываю улыбку нашему герою 😊', 'Расставляю звёзды по местам ⭐', 'Добавляю в картинки уютные детали 🏕️'],
     3: ['Складываю страницы в красивую книгу 📖', 'Почти готово — проверяю каждую страницу 🔍'],
@@ -859,10 +1090,10 @@
     setBackButton(false);
     setHeader('bg_color');
     const eta = S.cfg.mock ? 'В тестовом режиме это быстрее минуты.' : 'Обычно 5–15 минут. Можно закрыть приложение — PDF придёт в чат 💌';
-    const rows = rowHtml('cover', 'Обложка') + [1, 2, 3, 4, 5, 6, 7, 8].map((n) => rowHtml('p' + n, 'Страница ' + n)).join('');
+    const rows = rowHtml('cover', 'Обложка') + Array.from({ length: pagesCount() }, (_, i) => rowHtml('p' + (i + 1), 'Страница ' + (i + 1))).join('');
     app.innerHTML = '<section class="screen wait">' +
       '<div class="scene">' + bookScene() + '</div>' +
-      '<h1>Пишем вашу сказку ✍️</h1><p class="tip" id="tip" aria-live="polite">' + TIPS[0][0] + '</p>' +
+      '<h1>Пишем вашу книгу ✍️</h1><p class="tip" id="tip" aria-live="polite">' + TIPS[0][0] + '</p>' +
       '<div class="bar" role="progressbar" aria-label="Готовность книги" aria-valuemin="0" aria-valuemax="100" aria-valuenow="2"><i></i></div>' +
       '<ol class="stages">' + STAGES.map((s, i) => '<li data-stage="' + i + '"><span class="dot">' + icon('check') + '</span><span class="em" aria-hidden="true">' + s[0] + '</span><span class="lbl">' + s[1] + '</span></li>').join('') + '</ol>' +
       '<p class="stay">' + eta + '</p>' +
@@ -950,24 +1181,53 @@
     setBackButton(false);
     setHeader('bg_color');
     const detail = o.error_detail ? '<details><summary>Подробности для администратора</summary><pre>' + esc(o.error_detail) + '</pre></details>' : '';
-    stateScreen('😔', 'Ой, сказка не получилась', o.error || 'Что-то пошло не так. Попробуйте ещё раз через несколько минут.',
+    stateScreen('😔', 'Ой, книга не получилась', o.error || 'Что-то пошло не так. Попробуйте ещё раз через несколько минут.',
       [{ act: 'retry-order', label: 'Попробовать ещё раз', icon: 'refresh' }, { act: 'home', label: 'Вернуться в начало', cls: 'ghost' }], detail);
   }
 
   /* ===================================================================== результат */
-  /* Книга в приложении повторяет PDF: бумага, золотые линии, квадратные картинки; на телефоне страницы идут по одному квадрату */
+  /* Книга в приложении повторяет PDF: бумага, золотые линии; обложка квадратная, страницы истории с широкой картинкой 2:1 */
   const HEART = '<svg class="heart" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21.2C7 17.6 2.6 13.9 2.6 9.2c0-2.8 2.1-4.8 4.7-4.8 1.9 0 3.6 1 4.7 2.7 1.1-1.7 2.8-2.7 4.7-2.7 2.6 0 4.7 2 4.7 4.8 0 4.7-4.4 8.4-9.4 12z"/></svg>';
 
   function folioHtml(n) {
     return '<div class="folio"><span class="divider" aria-hidden="true"><i></i><i></i><i></i></span><span class="badge" aria-hidden="true">' + n + '</span></div>';
   }
 
+  /* Акценты в тексте страницы: реплики (строка начинается с тире) и предложения с «!» красим в #D4472F.
+     Если сервер прислал разбор (page.lines: куски {t, a}), берём его; иначе разбираем текст сами по тем же правилам. */
+  function accentRuns(line) {
+    const text = String(line);
+    if (/^\s*[—–-]/.test(text)) return [{ t: text, a: true }];
+    const runs = [];
+    const re = /[^.!?…]+(?:[.!?…]+[»"”)]*)?\s*|[.!?…]+[»"”)]*\s*/g;   // предложение вместе со знаками в конце и пробелом
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const a = m[0].includes('!');
+      const last = runs[runs.length - 1];
+      if (last && last.a === a) last.t += m[0]; else runs.push({ t: m[0], a });
+    }
+    return runs;
+  }
+
+  function accentHtml(page) {
+    const text = String(page.text == null ? '' : page.text);
+    let lines = null;
+    if (Array.isArray(page.lines) && page.lines.length) {
+      const ok = page.lines.every((l) => Array.isArray(l) && l.every((r) => r && typeof r.t === 'string'));
+      const joined = ok ? page.lines.map((l) => l.map((r) => r.t).join('')).join('\n') : '';
+      if (ok && joined.replace(/\s+/g, ' ').trim() === text.replace(/\s+/g, ' ').trim()) lines = page.lines;   // разбор сервера совпал с текстом
+    }
+    if (!lines) lines = text.split('\n').map(accentRuns);
+    return lines.map((runs) => runs.map((r) => (r.a ? '<span class="acc">' + esc(r.t) + '</span>' : esc(r.t))).join('')).join('\n');
+  }
+
+  /* Страница истории: широкая картинка 2:1 на всю ширину слайда, под ней бумажная карточка с крупным текстом.
+     Чередования «картинка / текст» нет: картинка всегда сверху. В PDF та же страница идёт разворотом, текст лежит на картинке. */
   function storySlide(page, i) {
     const n = i + 1;
-    const art = page.image_url ? '<div class="art"><img src="' + esc(page.image_url) + '" alt="Иллюстрация к странице ' + n + '" decoding="async"></div>' : '';
-    const leaf = '<div class="leaf"><div class="txt">' + esc(page.text) + '</div>' + folioHtml(n) + '</div>';
-    // как в PDF: у нечётных страниц сначала картинка, у чётных сначала текст
-    return '<article class="slide page ' + (n % 2 ? 'odd' : 'even') + '" aria-label="Страница ' + n + '">' + (n % 2 ? art + leaf : leaf + art) + '</article>';
+    const art = page.image_url ? '<div class="art wide"><img src="' + esc(page.image_url) + '" alt="Иллюстрация к странице ' + n + '" decoding="async"></div>' : '';
+    const leaf = '<div class="leaf"><div class="txt"><p>' + accentHtml(page) + '</p></div>' + folioHtml(n) + '</div>';
+    return '<article class="slide page" aria-label="Страница ' + n + '">' + art + leaf + '</article>';
   }
 
   function slidesHtml(o) {
@@ -1006,9 +1266,9 @@
 
   function feedbackHtml() {
     const f = S.fb;
-    if (f.sent) return '<section class="feedback" id="feedback"><p class="thanks"><span class="big em" aria-hidden="true">💛</span>Спасибо! Ваш отзыв помогает сказкам становиться лучше.</p></section>';
+    if (f.sent) return '<section class="feedback" id="feedback"><p class="thanks"><span class="big em" aria-hidden="true">💛</span>Спасибо! Ваш отзыв помогает книгам становиться лучше.</p></section>';
     const price = esc(S.cfg.price_text);
-    return '<section class="feedback" id="feedback"><h2>Как вам сказка? 💬</h2>' +
+    return '<section class="feedback" id="feedback"><h2>Как вам книга? 💬</h2>' +
       '<div class="rate" role="radiogroup" aria-label="Оценка">' +
       '<button type="button" class="opt" role="radio" aria-checked="' + (f.rating === 'up') + '" data-act="fb-rate" data-v="up"><span class="big em" aria-hidden="true">😍</span><b>Понравилась</b></button>' +
       '<button type="button" class="opt" role="radio" aria-checked="' + (f.rating === 'down') + '" data-act="fb-rate" data-v="down"><span class="big em" aria-hidden="true">😕</span><b>Не понравилась</b></button></div>' +
@@ -1045,11 +1305,12 @@
     haptic.ok();
     const count = 2 + o.pages.length + 1;
     app.innerHTML = '<section class="screen result"><div class="confetti" aria-hidden="true"></div>' +
-      '<header class="r-head"><h1>Ура! Сказка готова 🎉</h1><p class="bt">' + esc(o.book.title) + '</p>' + deliveryHtml(o) + '</header>' +
+      '<header class="r-head"><h1>Ура! Книга готова 🎉</h1><p class="bt">' + esc(o.book.title) + '</p>' + deliveryHtml(o) + '</header>' +
       '<div class="pager-wrap"><div class="pager-nav"><button type="button" class="pn" data-act="pager-prev" aria-label="Предыдущая страница">' + icon('back') + '</button>' +
       '<span class="count" id="pager-count" aria-live="polite">1 / ' + count + '</span>' +
       '<button type="button" class="pn" data-act="pager-next" aria-label="Следующая страница">' + icon('next') + '</button></div>' +
-      '<div class="pager" id="pager" tabindex="0" role="region" aria-roledescription="карусель" aria-label="Страницы книги">' + slidesHtml(o) + '</div></div>' +
+      '<div class="pager" id="pager" tabindex="0" role="region" aria-roledescription="карусель" aria-label="Страницы книги">' + slidesHtml(o) + '</div>' +
+      '<p class="pager-cap">В PDF страница идёт разворотом: картинка на оба листа, текст на ней.</p></div>' +
       printHtml() + feedbackHtml() +
       '<button type="button" class="btn secondary again" data-act="again">🎁 Сделать ещё одну, для брата или сестры</button>' +
       '<footer class="footer"><button type="button" class="btn gold" data-act="download">' + icon('download') + 'Скачать PDF</button></footer></section>';
@@ -1096,7 +1357,7 @@
     const url = absUrl(o.pdf_url) + '&download=1';
     try {
       if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.downloadFile && url.indexOf('https://') === 0) {
-        tg.downloadFile({ url, file_name: 'skazka.pdf' });
+        tg.downloadFile({ url, file_name: 'kniga.pdf' });
         return;
       }
       if (tg && tg.openLink) { tg.openLink(url); return; }
@@ -1144,7 +1405,7 @@
 
   async function again() {
     haptic.tap();
-    const keep = { language: S.a.language, islamic: S.a.islamic };
+    const keep = { language: S.a.language, islamic: S.a.islamic, style: S.a.style };
     await refreshConfig();
     if (accessClosed()) { showClosed(); return; }
     if (S.cfg.limits.remaining_today < 1) { showWelcome(); return; }
@@ -1191,17 +1452,17 @@
       ? '<button type="button" class="qr-card" data-act="qr-zoom" aria-label="Увеличить QR-код"><img class="qr" src="' + esc(pay.qr_url) + '" alt="QR-код для оплаты" width="240" height="240"></button>'
       : '<div class="qr-card empty"><p>QR-код пока не загружен. Напишите нам, и мы всё подключим.</p></div>';
     const state = sent
-      ? '<div class="pay-state" role="status"><span class="em big" aria-hidden="true">⏳</span><div><b>Чек получен — проверяем оплату</b><span>Обычно это занимает несколько минут. Как только мы подтвердим, сказка начнёт создаваться, а в чат придёт сообщение. Приложение можно закрыть 💌</span></div></div>'
+      ? '<div class="pay-state" role="status"><span class="em big" aria-hidden="true">⏳</span><div><b>Чек получен — проверяем оплату</b><span>Обычно это занимает несколько минут. Как только мы подтвердим, книга начнёт создаваться, а в чат придёт сообщение. Приложение можно закрыть 💌</span></div></div>'
       : '';
     app.innerHTML = '<section class="screen pay">' +
       '<header class="pay-head"><span class="em big" aria-hidden="true">🪙</span><h1>Оплата книги</h1>' +
-      '<p>Сказка для ' + esc(pay.child) + ' — <b>' + esc(pay.price_text) + '</b></p></header>' +
+      '<p>Книга для ' + esc(pay.child) + ' — <b>' + esc(pay.price_text) + '</b></p></header>' +
       '<div class="pay-body">' + note + state + (sent ? '' : qr) +
       (sent ? '' : '<p class="amount">К оплате: <b>' + esc(pay.price_text) + '</b></p>') +
       (sent || !pay.qr_url ? '' : '<button type="button" class="btn secondary small qr-save" data-act="qr-save">' + icon('download') + 'Сохранить QR в телефон</button>') +
       (sent ? '' : '<ol class="pay-steps"><li><span class="n">1</span><span>' + esc(pay.instructions) + '</span></li>' +
         '<li><span class="n">2</span><span>Переведите точную сумму и сделайте скриншот или фото чека.</span></li>' +
-        '<li><span class="n">3</span><span>Нажмите «Отправить чек» внизу. Мы проверим оплату и сразу начнём писать сказку ✨</span></li></ol>') +
+        '<li><span class="n">3</span><span>Нажмите «Отправить чек» внизу. Мы проверим оплату и сразу начнём писать книгу ✨</span></li></ol>') +
       '</div>' +
       '<footer class="footer"><p class="form-error" id="pay-error" role="alert" hidden></p>' +
       '<input type="file" class="vh" id="receipt-file" accept="image/*">' +
@@ -1342,7 +1603,7 @@
       '<article class="rcard" data-id="' + esc(p.id) + '">' +
       (p.receipt_url ? '<button type="button" class="rimg" data-act="zoom-img" data-src="' + esc(p.receipt_url) + '" aria-label="Открыть чек"><img src="' + esc(p.receipt_url) + '" alt="Чек" loading="lazy"></button>' : '') +
       '<div class="rmeta"><b>' + esc(p.user) + (p.username ? ' <small>@' + esc(p.username) + '</small>' : '') + '</b>' +
-      '<span>Сказка для ' + esc(p.child) + '</span><span class="ago">Чек ' + esc(ago(p.receipt_at)) + '</span></div>' +
+      '<span>Книга для ' + esc(p.child) + '</span><span class="ago">Чек ' + esc(ago(p.receipt_at)) + '</span></div>' +
       '<div class="ract"><button type="button" class="btn small" data-act="approve" data-id="' + esc(p.id) + '">' + icon('check') + 'Подтвердить</button>' +
       '<button type="button" class="btn small secondary" data-act="reject-open" data-id="' + esc(p.id) + '">Отклонить</button></div>' +
       '<div class="reject" hidden><div class="chips">' + ['Сумма не совпадает', 'Платёж не найден', 'Чек не читается'].map((r) =>
@@ -1449,7 +1710,7 @@
     const f = S.inv.fresh;
     if (!f || !f.url) return;
     haptic.tap();
-    const link = 'https://t.me/share/url?url=' + encodeURIComponent(f.url) + '&text=' + encodeURIComponent('Ссылка для создания персональной сказки:');
+    const link = 'https://t.me/share/url?url=' + encodeURIComponent(f.url) + '&text=' + encodeURIComponent('Ссылка для создания персональной книги:');
     try { if (tg && tg.openTelegramLink) { tg.openTelegramLink(link); return; } } catch (e) { /* откроем обычной ссылкой */ }
     window.open(link, '_blank');
   }
@@ -1474,7 +1735,7 @@
     return '<div class="set">' +
       '<div class="switch-row"><div class="t"><b id="sw-closed">🔒 Закрытый бот</b><p>Книги создают только по личным ссылкам из вкладки «Ссылки». Вам доступ открыт всегда.</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-closed" aria-checked="' + closedOn(st) + '" data-act="closed-switch"></button></div>' +
-      '<div class="switch-row"><div class="t"><b id="sw-pay">💳 Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, сказка создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
+      '<div class="switch-row"><div class="t"><b id="sw-pay">💳 Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, книга создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-pay" aria-checked="' + !!st.enabled + '" data-act="pay-switch"' + (st.has_qr ? '' : ' disabled') + '></button></div>' +
       '<h2 class="a-sub">Ваш QR-код</h2>' + qr +
       '<input type="file" class="vh" id="qr-file" accept="image/*">' +
@@ -1493,7 +1754,7 @@
 
   async function approvePayment(el) {
     const id = el.dataset.id;
-    confirmDialog('Подтвердить оплату? Сказка сразу начнёт создаваться.', async () => {
+    confirmDialog('Подтвердить оплату? Книга сразу начнёт создаваться.', async () => {
       el.classList.add('busy'); el.disabled = true;
       try { await adminAction('/api/admin/orders/' + encodeURIComponent(id) + '/approve'); haptic.ok(); await loadAdmin(true); }
       catch (e) { el.classList.remove('busy'); el.disabled = false; haptic.bad(); await loadAdmin(true); showAdminToast(e.message); }
@@ -1573,6 +1834,7 @@
     pick: (el) => pick(el),
     toggle: (el) => toggleChip(el.dataset.kind, el.dataset.id),
     'like-add': addCustomLike,
+    'req-example': (el) => addExample(Number(el.dataset.i)),
     edit: (el) => { S.returnToSummary = true; go(S.steps.indexOf(el.dataset.step), 'back'); },
     switch: (el) => {
       const field = el.dataset.field;
@@ -1648,8 +1910,19 @@
       const err = $('#e-name'); err.hidden = !bad; err.textContent = bad ? 'В имени могут быть только буквы, пробел и дефис.' : '';
     }
     if (field === 'dedication') $('#c-ded').textContent = el.value.length + '/120';
+    if (field === 'request') { $('#c-req').textContent = el.value.length + '/' + requestMax(); syncExamples(); }
+    if (field === 'favorites') $('#c-fav').textContent = el.value.length + '/' + favoritesMax();
+    if (field === 'cartoons') $('#c-cart').textContent = el.value.length + '/' + cartoonsMax();
     updateFooter();
   });
+
+  // Страницы старых книг (до широкого формата) квадратные: если картинка не широкая, показываем её квадратом, а не обрезаем до 2:1
+  document.addEventListener('load', (ev) => {
+    const img = ev.target;
+    if (!img || img.tagName !== 'IMG' || !img.naturalWidth || !img.naturalHeight) return;
+    const art = img.closest('.art.wide');
+    if (art && img.naturalWidth / img.naturalHeight < 1.5) art.classList.add('sq');
+  }, true);
 
   document.addEventListener('change', (ev) => {
     if (ev.target.id === 'file' || ev.target.id === 'file-cam') onPhotoChosen(ev.target.files && ev.target.files[0]);

@@ -1,9 +1,10 @@
-"""Показывает сказку, которую пишет выбранный в .env текстовый провайдер (картинки и сервер не нужны).
+"""Показывает книгу, которую пишет выбранный в .env текстовый провайдер (картинки и сервер не нужны).
 
     python story_preview.py                         # анкета из samples/profile_example.json
     python story_preview.py samples/profile_ky.json # кыргызский пример
-    python story_preview.py --full                  # ещё показать английские описания для художника
+    python story_preview.py --full                  # ещё показать рефрен, героев и английские описания для художника
 
+Конвейер: режиссёр (план) → автор (текст) → «понятно ли пятилетнему» → редактор. Это 4–5 запросов к модели, у кыргызского ещё вычитка.
 Удобно, чтобы сразу оценить качество текста после того, как вписали GEMINI_API_KEY или OPENAI_API_KEY
 и поставили TEXT_PROVIDER=gemini (или openai). С TEXT_PROVIDER=mock покажет шаблонный текст.
 """
@@ -32,7 +33,7 @@ async def preview(settings: Settings, data: dict, *, full: bool = False, out=pri
     except (ConfigError, ValidationError) as e:
         out(f"Ошибка настройки: {getattr(e, 'message', e)}")
         return 2
-    out(f"Пишу сказку для вымышленного ребёнка: текст = {settings.text_provider}. Это может занять до минуты…")
+    out(f"Пишу книгу для вымышленного ребёнка: текст = {settings.text_provider}. Это может занять до минуты…")
     if settings.text_provider == "gemini":
         out("Напоминание: бесплатный тариф Gemini использует присланное для улучшения продуктов Google — "
             "вводите только вымышленные данные.")
@@ -43,7 +44,7 @@ async def preview(settings: Settings, data: dict, *, full: bool = False, out=pri
         out(f"\nНе получилось: {e.message}")
         return 1
     except StoryError as e:
-        out(f"\nМодель три раза подряд вернула сказку, не прошедшую проверку. Последняя причина: {redact(str(e))}")
+        out(f"\nМодель три раза подряд вернула ответ, не прошедший проверку. Последняя причина: {redact(str(e))}")
         return 1
     seconds = time.monotonic() - started
     out(f"\n=== {story.title} ===\n")
@@ -55,6 +56,9 @@ async def preview(settings: Settings, data: dict, *, full: bool = False, out=pri
     out(f"Пожелание: {story.wish}")
     if full:
         out(f"\n[герой для художника] {story.hero_visual}\n[стиль] {story.style_note}")
+        out(f"[рефрен] {story.refrain}")
+        for character in story.cast:
+            out(f"[актёр: {character.role}] {character.name}: {character.look}")
     out(f"\nГотово за {seconds:.0f} с.")
     return 0
 

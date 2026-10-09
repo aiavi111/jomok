@@ -1,4 +1,4 @@
-"""Сборка одной книги: текст → обложка → иллюстрации страниц (PAGES) → PDF (разворотами).
+"""Сборка одной книги: текст → обложка (квадрат 1024×1024) → широкие иллюстрации страниц (PAGES, 2048×1024) → PDF разворотами.
 
 Используется и сервером (с обновлением статуса в базе), и demo.py (без сервера).
 Каждая готовая картинка сразу сохраняется на диск, чтобы Mini App показал её до сборки PDF.
@@ -15,10 +15,12 @@ from typing import Awaitable, Callable
 
 from .errors import ProviderError
 from .imaging import normalize_image
+from .layout import COVER_QUALITY, COVER_SIZE, PAGE_QUALITY, PAGE_SIZE, calm_side, size_str
+from .overlay import DEFAULT_MODE, MODES
 from .pdfbook import build_pdf
 from .placeholder import draw_placeholder
 from .profile import Profile
-from .prompts import build_cover_prompt, build_page_prompt
+from .prompts import build_cover_prompt, build_page_prompt, build_sheet_prompt, has_sheet_characters
 from .providers.base import ImageProvider, TextProvider
 from .story import PAGES, Story
 
@@ -38,12 +40,14 @@ class BookResult:
     pdf_path: Path
     failed_pages: list[str] = field(default_factory=list)   # 'cover', 'p3', ...
     failure_notes: list[str] = field(default_factory=list)
-    min_text_pt: float = 20.0
+    min_text_pt: float = 30.0
     cover_has_title: bool = False      # название нарисовано на самой обложке (иначе в PDF кладётся плашка)
+    text_styles: list[str] = field(default_factory=list)   # оформление текста на каждой странице истории (app/overlay.py)
 
 
 COVER_ATTEMPTS = 3                                 # сколько раз перерисовываем обложку, если в названии ошибка
 COVER_META = "cover.meta.json"
+LAYOUT_META = "layout.meta.json"                   # как лежит текст на страницах (для Mini App): стороны и оформление
 _LOOKALIKE = str.maketrans({"a": "а", "b": "в", "c": "с", "e": "е", "h": "н", "k": "к", "m": "м", "o": "о", "p": "р",
                             "t": "т", "x": "х", "y": "у", "i": "і", "ё": "е", "ү": "у", "ө": "о", "ң": "н"})
 
@@ -61,19 +65,29 @@ def read_cover_meta(out_dir: Path) -> dict:
         return {}
 
 
+def read_layout_meta(out_dir: Path) -> dict:
+    try:
+        return json.loads((Path(out_dir) / LAYOUT_META).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 async def _noop(*_a, **_k) -> None:
     return None
 
 
 async def _draw_with_retries(provider: ImageProvider, prompt: str, refs: list[bytes] | None, label: str,
-                             sem: asyncio.Semaphore) -> bytes:
-    """Одна картинка: до 3 попыток с паузами. Неисправимые ошибки (ключ, деньги) пробрасываются сразу."""
+                             sem: asyncio.Semaphore, size: tuple[int, int] = COVER_SIZE,
+                             quality: int = COVER_QUALITY) -> bytes:
+    """Одна картинка: до 3 попыток с паузами. Неисправимые ошибки (ключ, деньги) пробрасываются сразу.
+    Провайдеру уходит размер «ШxВ» (обложка 1024x1024, страница 2048x1024); что бы он ни вернул, результат
+    обрезается по центру до этого соотношения и приводится ровно к этому размеру."""
     last: Exception | None = None
     for attempt in range(IMAGE_ATTEMPTS):
         try:
             async with sem:
-                raw = await provider.generate(prompt, refs or None, "1024x1024", label=label)
-            return await asyncio.to_thread(normalize_image, raw)
+                raw = await provider.generate(prompt, refs or None, size_str(size), label=label)
+            return await asyncio.to_thread(normalize_image, raw, size, quality)
         except ProviderError as e:
             if e.fatal:
                 raise
@@ -98,9 +112,12 @@ async def build_book(
     photo: bytes | None = None,
     image_sem: asyncio.Semaphore | None = None,
     mock: bool = False,
+    overlay_mode: str = DEFAULT_MODE,
     on_status: StatusCb = _noop,
     on_story: StoryCb = _noop,
 ) -> BookResult:
+    if overlay_mode not in MODES:                 # до платных запросов: неверная настройка не должна стоить денег
+        raise ValueError(f"overlay_mode должен быть одним из: {', '.join(MODES)}")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     sem = image_sem or asyncio.Semaphore(3)
@@ -118,8 +135,9 @@ async def build_book(
     notes: list[str] = []
 
     async def make(name: str, prompt: str, refs: list[bytes] | None, label: str, description: str) -> bytes:
+        size, quality = (COVER_SIZE, COVER_QUALITY) if name == "cover" else (PAGE_SIZE, PAGE_QUALITY)
         try:
-            data = await _draw_with_retries(image, prompt, refs, label, sem)
+            data = await _draw_with_retries(image, prompt, refs, label, sem, size, quality)
             ok = True
         except ProviderError as e:
             if e.fatal:
@@ -127,13 +145,30 @@ async def build_book(
             failed.append(name)
             notes.append(f"{label}: {e.message}")
             log.error("Не удалось нарисовать «%s»: %s", label, e.message)
+            number = int(name[1:]) if name[1:].isdigit() else None
             data = await asyncio.to_thread(draw_placeholder, label, "Иллюстрация не получилась", description,
-                                           caption="НЕ НАРИСОВАНО")
+                                           caption="НЕ НАРИСОВАНО", size=size,
+                                           calm_side=calm_side(number) if number else None)
             ok = False
         (out_dir / f"{name}.jpg").write_bytes(data)
         return data if ok else b""
 
-    cover_refs = [photo] if use_photo else None
+    # лист героев: помощник, друзья и взрослый на чисто белом фоне (без фото: с фото модель тянет в кадр пейзаж). Обложка и
+    # страницы берут его как образец внешности и рисуют своё место, а не копируют фон обложки. Не получился (или провайдер
+    # без референсов) — работаем по-старому: образец — обложка.
+    sheet_bytes = b""
+    if image.supports_reference and getattr(image, "needs_character_sheet", False) and has_sheet_characters(story):
+        try:
+            sheet_bytes = await _draw_with_retries(image, build_sheet_prompt(story, profile), None, "Лист героев", sem,
+                                                   COVER_SIZE, COVER_QUALITY)
+            (out_dir / "sheet.jpg").write_bytes(sheet_bytes)
+        except ProviderError as e:
+            if e.fatal:
+                raise
+            log.warning("Лист героев не получился (%s), страницы будут брать образец с обложки", e.message)
+            sheet_bytes = b""
+    identity_refs = ([photo] if use_photo else []) + ([sheet_bytes] if sheet_bytes else [])
+    cover_refs = identity_refs or None
     cover_bytes = b""
     cover_has_title = False
     if image.renders_text:
@@ -164,7 +199,9 @@ async def build_book(
     cover_is_real = bool(cover_bytes)
 
     page_refs: list[bytes] | None = None
-    if image.supports_reference and cover_is_real:
+    if image.supports_reference and sheet_bytes:
+        page_refs = identity_refs
+    elif image.supports_reference and cover_is_real:
         page_refs = [cover_bytes] + ([photo] if use_photo else [])
 
     async def page(i: int) -> None:
@@ -184,6 +221,11 @@ async def build_book(
     await on_status("assembling")
     images = {"cover": out_dir / "cover.jpg", **{name: out_dir / f"{name}.jpg" for name in PAGE_IMAGE_NAMES}}
     pdf_path = out_dir / "book.pdf"
-    await asyncio.to_thread(build_pdf, story, profile, images, pdf_path, mock=mock, cover_has_title=cover_has_title)
+    report: dict = {}
+    await asyncio.to_thread(build_pdf, story, profile, images, pdf_path, mock=mock, cover_has_title=cover_has_title,
+                            overlay_mode=overlay_mode, report=report)
+    (out_dir / LAYOUT_META).write_text(json.dumps({k: report.get(k) for k in ("text_sides", "text_styles", "overlay_mode")},
+                                                  ensure_ascii=False), encoding="utf-8")
     return BookResult(story=story, pdf_path=pdf_path, failed_pages=failed, failure_notes=notes,
-                      cover_has_title=cover_has_title)
+                      cover_has_title=cover_has_title, text_styles=report.get("text_styles", []),
+                      min_text_pt=report.get("min_text_pt", 20.0))

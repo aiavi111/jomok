@@ -29,11 +29,12 @@ def test_env_example_has_every_variable_with_empty_secrets():
     for key in ["TELEGRAM_BOT_TOKEN", "WEBAPP_URL", "ADMIN_CHAT_ID", "TEXT_PROVIDER", "IMAGE_PROVIDER", "OPENAI_API_KEY",
                 "OPENAI_BASE_URL", "OPENAI_TEXT_MODEL", "OPENAI_IMAGE_MODEL", "OPENAI_IMAGE_QUALITY", "GEMINI_API_KEY",
                 "GEMINI_MODEL", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "DEV_MODE", "MAX_BOOKS_PER_USER_PER_DAY",
-                "KEEP_FILES_DAYS"]:
+                "KEEP_FILES_DAYS", "TEXT_OVERLAY_MODE"]:
         assert key in values, f"{key} нет в .env.example"
     for key in SECRET_KEYS:
         assert values[key] == "", f"в .env.example у {key} должно быть пусто"
     assert values["TEXT_PROVIDER"] == "mock" and values["IMAGE_PROVIDER"] == "mock" and values["DEV_MODE"] == "0"
+    assert values["TEXT_OVERLAY_MODE"] == "auto"
 
 
 def test_env_file_is_ignored_by_git():

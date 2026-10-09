@@ -80,7 +80,7 @@ async def test_full_order_flow_with_files_and_delivery(env):
     assert order["status"] == "done" and order["progress"]["percent"] == 100
     assert order["title"] and len(order["pages"]) == PAGES and all(p["image_url"] for p in order["pages"])
     assert order["progress"]["images_total"] == PAGES and order["progress"]["images_done"] == PAGES
-    assert order["cover_url"] and order["pdf_url"] and order["book"]["caption"] == "Сказка для Айдара"
+    assert order["cover_url"] and order["pdf_url"] and order["book"]["caption"] == "Книга для Айдара"
     assert order["delivered"] is True and order["error"] is None and "error_detail" not in order
     # PDF отправлен в чат владельца и копия — администратору
     assert [b[0] for b in env.notifier.books] == [42]
@@ -90,6 +90,17 @@ async def test_full_order_flow_with_files_and_delivery(env):
     assert pdf.status == 200 and pdf.content_type == "application/pdf" and (await pdf.read())[:4] == b"%PDF"
     img = await env.client.get(f"/api/orders/{order_id}/img/p3.jpg", headers=tma())
     assert img.status == 200 and img.content_type == "image/jpeg"
+    import io as _io
+    from PIL import Image as _Image
+    from app import overlay as _overlay
+    assert _Image.open(_io.BytesIO(await img.read())).size == (2048, 1024)                # страница: широкий разворот 2:1
+    cover = await env.client.get(f"/api/orders/{order_id}/img/cover.jpg", headers=tma())
+    assert _Image.open(_io.BytesIO(await cover.read())).size == (1024, 1024)               # обложка: квадрат
+    assert [p["text_side"] for p in order["pages"]] == ["right", "left"] * (PAGES // 2)   # нечётные справа, чётные слева
+    assert all(p["text_style"] in _overlay.STYLES for p in order["pages"])                # как оформлен текст в PDF
+    for page in order["pages"]:                                                           # строки с акцентами, как в PDF
+        assert "\n".join("".join(run["t"] for run in line) for line in page["lines"]) == page["text"]
+        assert all(set(run) == {"t", "a"} and isinstance(run["a"], bool) for line in page["lines"] for run in line)
     # и по подписанной ссылке (для <img> и скачивания), с нужными заголовками для downloadFile
     link = await env.client.get(order["pdf_url"] + "&download=1")
     assert link.status == 200
@@ -164,7 +175,7 @@ async def test_daily_book_limit(tmp_path):
         resp = await e.client.post("/api/orders", json=SAMPLE, headers=tma())
         data = await resp.json()
         assert resp.status == 429 and data["code"] == "limit"
-        assert "2 сказки" in data["error"] and "лимит (2)" in data["error"] and "через" in data["error"]
+        assert "2 книги" in data["error"] and "лимит (2)" in data["error"] and "через" in data["error"]
         cfg = await (await e.client.get("/api/config", headers=tma())).json()
         assert cfg["limits"]["remaining_today"] == 0
         # другой пользователь не затронут

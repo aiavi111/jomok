@@ -1,6 +1,7 @@
 """Провайдеры OpenAI, Gemini, Cloudflare на поддельном сетевом слое: форма запросов, повторы, ошибки."""
 import base64
 import json
+import re
 from email.utils import format_datetime
 from datetime import datetime, timedelta, timezone
 
@@ -19,8 +20,10 @@ from app.providers.text_openai import OpenAITextProvider
 
 from .conftest import SAMPLE, make_settings
 from .test_story import good_story
+from .writer_helpers import CLEAR, NO_FIXES, dump, plan_and_text, seeded
 from app.profile import Profile
 
+CLEAR_JSON = json.dumps(CLEAR, ensure_ascii=False)       # проверка понятности («пятилетний слушатель»): всё понятно
 OPENAI_KEY = "sk-proj-TESTKEYtestkeyTESTKEYtestkey12345"
 GEMINI_KEY = "AIzaSyTESTKEYtestkeyTESTKEYtestkey12345"
 CF_TOKEN = "cfTESTtokenTESTtokenTESTtoken1234567890ab"
@@ -64,6 +67,8 @@ class Recorder:
 
 def jr(status=200, body=None, headers=None):
     return httpx.Response(status, json=body if body is not None else {}, headers=headers or {})
+
+
 
 
 # ----------------------------------------------------------------------- общие правила повторов
@@ -110,7 +115,7 @@ async def test_client_errors_are_not_retried():
 
 
 def test_image_timeout_is_five_minutes():
-    assert http_mod.IMAGE_TIMEOUT.read == 300 and http_mod.TEXT_TIMEOUT.read <= 180
+    assert http_mod.IMAGE_TIMEOUT.read == 300 and http_mod.TEXT_TIMEOUT.read <= 300
 
 
 # ----------------------------------------------------------------------- OpenAI, текст
@@ -119,10 +124,11 @@ def chat_reply(content: str) -> httpx.Response:
 
 
 async def test_openai_text_request_follows_docs_and_omits_temperature_and_max_tokens(profile):
-    server = Recorder(chat_reply(json.dumps(good_story(), ensure_ascii=False)))
-    provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1/", "model-from-env", transport=server.transport)
+    plan, text = plan_and_text(profile)
+    server = Recorder(chat_reply(plan), chat_reply(text), chat_reply(CLEAR_JSON), chat_reply(NO_FIXES))
+    provider = seeded(OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1/", "model-from-env", transport=server.transport))
     story = await provider.generate_story(profile)
-    assert story.title
+    assert story.title and len(server.requests) == 4                 # режиссёр, автор, понятность, редактор
     request = server.requests[0]
     assert str(request.url) == "https://api.openai.test/v1/chat/completions"
     assert request.headers["authorization"] == f"Bearer {OPENAI_KEY}"
@@ -130,13 +136,17 @@ async def test_openai_text_request_follows_docs_and_omits_temperature_and_max_to
     assert set(body) == {"model", "messages", "response_format"}               # ни temperature, ни max_tokens
     assert body["model"] == "model-from-env" and body["response_format"] == {"type": "json_object"}
     assert body["messages"][0]["role"] == "system" and "JSON" in body["messages"][0]["content"]
+    assert body["messages"][0]["content"].startswith("Ты режиссёр")             # первый шаг — план
     assert body["messages"][1]["role"] == "user" and "<child>" in body["messages"][1]["content"]
+    assert server.json(1)["messages"][0]["content"].startswith("Ты автор текстов")
+    assert server.json(3)["messages"][0]["content"].startswith("Ты строгий редактор")
     assert OPENAI_KEY not in str(request.url)
 
 
 async def test_openai_text_retry_sends_error_text_back_to_model(profile):
-    server = Recorder(chat_reply("не JSON"), chat_reply(json.dumps(good_story(), ensure_ascii=False)))
-    provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport)
+    plan, text = plan_and_text(profile)
+    server = Recorder(chat_reply("не JSON"), chat_reply(plan), chat_reply(text), chat_reply(CLEAR_JSON), chat_reply(NO_FIXES))
+    provider = seeded(OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport))
     await provider.generate_story(profile)
     second = server.json(1)["messages"]
     assert [m["role"] for m in second] == ["system", "user", "assistant", "user"]
@@ -144,11 +154,13 @@ async def test_openai_text_retry_sends_error_text_back_to_model(profile):
 
 
 async def test_openai_text_falls_back_when_model_rejects_response_format(profile):
+    plan, text = plan_and_text(profile)
     server = Recorder(jr(400, {"error": {"message": "Unsupported parameter: 'response_format'"}}),
-                      chat_reply(json.dumps(good_story(), ensure_ascii=False)))
-    provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport)
+                      chat_reply(plan), chat_reply(text), chat_reply(CLEAR_JSON), chat_reply(NO_FIXES))
+    provider = seeded(OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport))
     await provider.generate_story(profile)
     assert "response_format" in server.json(0) and "response_format" not in server.json(1)
+    assert all("response_format" not in server.json(i) for i in range(1, len(server.requests)))
 
 
 @pytest.mark.parametrize("response, fragment", [
@@ -170,11 +182,12 @@ async def test_openai_text_errors_are_explained_in_russian_without_leaking_key(p
 
 
 async def test_openai_rate_limit_is_retried(profile):
+    plan, text = plan_and_text(profile)
     server = Recorder(jr(429, {"error": {"message": "Rate limit reached", "code": "rate_limit_exceeded"}},
-                         headers={"Retry-After": "1"}), chat_reply(json.dumps(good_story(), ensure_ascii=False)))
-    provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport)
+                         headers={"Retry-After": "1"}), chat_reply(plan), chat_reply(text))
+    provider = seeded(OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport))
     provider.polish = False
-    assert (await provider.generate_story(profile)).title and len(server.requests) == 2
+    assert (await provider.generate_story(profile)).title and len(server.requests) == 3
 
 
 # ----------------------------------------------------------------------- OpenAI, картинки
@@ -191,6 +204,17 @@ async def test_openai_image_generation_without_references():
     assert str(request.url) == "https://api.openai.test/v1/images/generations"
     assert request.headers["authorization"] == f"Bearer {OPENAI_KEY}"
     assert server.json() == {"model": "img-model", "prompt": "a red apple", "size": "1024x1024", "quality": "high", "n": 1}
+
+
+async def test_openai_image_sends_the_requested_custom_size_for_wide_pages_and_square_covers():
+    """Страница — широкий разворот 2048x1024 (кратно 16, не больше 3:1), обложка — квадрат; провайдер передаёт размер как есть."""
+    server = Recorder(image_reply(), image_reply(), image_reply())
+    provider = OpenAIImageProvider(OPENAI_KEY, "https://api.openai.test/v1", "img-model", "medium", transport=server.transport)
+    await provider.generate("page", None, "2048x1024")
+    await provider.generate("page with refs", [b"\xff\xd8cover"], "2048x1024")
+    await provider.generate("cover", None, "1024x1024")
+    assert [r.url.path for r in server.requests] == ["/v1/images/generations", "/v1/images/edits", "/v1/images/generations"]
+    assert [server.json(i)["size"] for i in range(3)] == ["2048x1024", "2048x1024", "1024x1024"]
 
 
 async def test_openai_image_edit_sends_json_with_data_urls_and_no_input_fidelity():
@@ -257,27 +281,30 @@ def gemini_reply(text: str, **extra) -> httpx.Response:
 
 
 async def test_gemini_request_follows_docs(profile):
-    server = Recorder(gemini_reply("не JSON"), gemini_reply(json.dumps(good_story(), ensure_ascii=False)))
-    provider = GeminiTextProvider(GEMINI_KEY, "models/gemini-model-from-env", transport=server.transport)
+    plan, text = plan_and_text(profile)
+    server = Recorder(gemini_reply("не JSON"), gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(NO_FIXES))
+    provider = seeded(GeminiTextProvider(GEMINI_KEY, "models/gemini-model-from-env", transport=server.transport))
     await provider.generate_story(profile)
     request = server.requests[0]
     assert str(request.url) == "https://generativelanguage.googleapis.com/v1beta/models/gemini-model-from-env:generateContent"
     assert request.headers["x-goog-api-key"] == GEMINI_KEY and GEMINI_KEY not in str(request.url)
     body = server.json(0)
-    assert body["systemInstruction"]["parts"][0]["text"].startswith("Ты детский писатель")
+    assert body["systemInstruction"]["parts"][0]["text"].startswith("Ты режиссёр")
     assert body["contents"] == [{"role": "user", "parts": [{"text": body["contents"][0]["parts"][0]["text"]}]}]
     assert body["generationConfig"]["responseMimeType"] == "application/json"
     assert body["generationConfig"]["maxOutputTokens"] >= 8192
     second = server.json(1)["contents"]
     assert [c["role"] for c in second] == ["user", "model", "user"] and "не прошёл проверку" in second[2]["parts"][0]["text"]
+    assert server.json(2)["systemInstruction"]["parts"][0]["text"].startswith("Ты автор текстов")
 
 
-async def test_gemini_skips_thought_parts_and_joins_text(profile):
+async def test_gemini_skips_thought_parts_and_joins_text():
+    profile = Profile.from_payload(SAMPLE)
+    plan, text = plan_and_text(profile)
     reply = jr(200, {"candidates": [{"content": {"parts": [
-        {"text": "размышления", "thought": True}, {"text": json.dumps(good_story(), ensure_ascii=False)[:50]},
-        {"text": json.dumps(good_story(), ensure_ascii=False)[50:]}]}}]})
-    story = await GeminiTextProvider(GEMINI_KEY, "m", transport=Recorder(reply).transport).generate_story(
-        Profile.from_payload(SAMPLE))
+        {"text": "размышления", "thought": True}, {"text": plan[:50]}, {"text": plan[50:]}]}}]})
+    provider = seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=Recorder(reply, gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(NO_FIXES)).transport))
+    story = await provider.generate_story(profile)
     assert story.title
 
 
@@ -296,14 +323,14 @@ async def test_gemini_errors_in_russian(profile, response, fatal, fragment):
 
 
 async def test_gemini_429_with_short_retry_delay_is_retried_and_503_too(profile, no_real_sleep):
+    plan, text = plan_and_text(profile)
     limited = jr(429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "slow down",
                                  "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "4s"}]}})
-    server = Recorder(limited, jr(503, {"error": {"message": "overloaded"}}),
-                      gemini_reply(json.dumps(good_story(), ensure_ascii=False)))
-    provider = GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)
+    server = Recorder(limited, jr(503, {"error": {"message": "overloaded"}}), gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON))
+    provider = seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport))
     provider.polish = False
     await provider.generate_story(profile)
-    assert len(server.requests) == 3 and no_real_sleep[0] == 4.0
+    assert len(server.requests) == 4 and no_real_sleep[0] == 4.0
 
 
 async def test_gemini_blocked_prompt_is_reported(profile):
@@ -326,6 +353,22 @@ async def test_cloudflare_request_follows_docs_and_never_sends_references_or_pho
     body = server.json()
     assert set(body) == {"prompt", "steps"} and len(body["prompt"]) == 2048 and 1 <= body["steps"] <= 8
     assert b"photo-of-a-child" not in request.content and base64.b64encode(b"photo-of-a-child") not in request.content
+
+
+async def test_cloudflare_returns_squares_and_ignores_the_wide_size_the_pipeline_crops_them():
+    """FLUX schnell не принимает размер: для страницы 2048x1024 в запрос width/height не уходят, ответ — квадрат,
+    обрезку до 2:1 делает normalize_image."""
+    import io
+    from PIL import Image
+    from app.imaging import normalize_image
+    square = io.BytesIO()
+    Image.new("RGB", (1024, 1024), (10, 120, 200)).save(square, "PNG")
+    server = Recorder(jr(200, {"result": {"image": base64.b64encode(square.getvalue()).decode()}, "success": True}))
+    provider = CloudflareImageProvider(CF_ACCOUNT, CF_TOKEN, "m", transport=server.transport)
+    raw = await provider.generate("scene", size="2048x1024")
+    assert set(server.json()) == {"prompt", "steps"}                       # ни width, ни height, ни size
+    page = Image.open(io.BytesIO(normalize_image(raw, (2048, 1024), 88)))
+    assert page.size == (2048, 1024)
 
 
 async def test_cloudflare_accepts_raw_image_bytes_too():
@@ -392,46 +435,54 @@ def test_missing_setting_gives_clear_russian_message(tmp_path, over, var):
 
 
 # ----------------------------------------------------------------------- проход «редактор»
-def _edited(story: dict, suffix: str = " Бряк!") -> str:
-    return json.dumps({"title": "Новое название", "pages": [{"text": p["text"] + suffix} for p in story["pages"]],
-                       "moral": "Живая мысль этой истории.", "wish": "Айдар, пусть тебе всегда везёт!"},
-                      ensure_ascii=False)
+ALT_PAGE_4 = "Раз, два, три — прыг! — и мальчик поскользнулся на мокром камне. Ноги сразу оказались в ледяной воде."
 
 
-async def test_editor_pass_rewrites_text_but_keeps_pictures_data(profile):
-    story = good_story()
-    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(_edited(story)))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
-    assert len(server.requests) == 2
-    assert result.title == "Новое название" and result.moral == "Живая мысль этой истории."
-    assert all(p.text.endswith("Бряк!") for p in result.pages)
-    assert [p.scene for p in result.pages] == [p["scene"] for p in story["pages"]]
-    assert result.hero_visual == story["hero_visual"]
-    sent = server.requests[1].content.decode()
-    assert "<draft>" in sent and "scene" not in sent and "hero_visual" not in sent    # редактор не видит описаний для художника
+def _fixes(*items) -> str:
+    return dump({"fixes": [{"page": n, "problem": "не так", "fixed_text": t} for n, t in items]})
 
 
-@pytest.mark.parametrize("bad", ['{"pages": []}', "это не JSON", '{"title": "x", "pages": [{"text": "коротко"}]}'])
+async def test_editor_pass_rewrites_only_failing_pages_and_keeps_pictures_data(profile):
+    plan, text = plan_and_text(profile)
+    server = Recorder(gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(_fixes((4, ALT_PAGE_4))))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    draft, planned = json.loads(text), json.loads(plan)
+    assert len(server.requests) == 4                                           # один цикл: план, текст, понятность, правки
+    assert result.pages[3].text == ALT_PAGE_4
+    assert [p.text for i, p in enumerate(result.pages) if i != 3] == [p["text"] for i, p in enumerate(draft["pages"]) if i != 3]
+    assert result.title == draft["title"] and result.moral == draft["moral"] and result.wish == draft["wish"]
+    assert [p.scene for p in result.pages] == planned["image_brief"]
+    assert result.hero_visual == planned["character_bible"]["hero"] and result.refrain == planned["refrain"]["text"]
+    sent = server.requests[3].content.decode()
+    assert "<draft>" in sent and "<plan>" in sent and "hero_visual" not in sent and "image_brief" not in sent
+
+
+@pytest.mark.parametrize("bad", [
+    '{"fixes": "нет"}', "это не JSON", '{"fixes": [{"page": 99, "fixed_text": "Страница с несуществующим номером."}]}',
+    '{"fixes": [{"page": 2}]}', '{"fixes": [{"page": 2, "fixed_text": "Ок."}]}', '[]', '{"fixes": []}',
+])
 async def test_editor_failure_keeps_draft(profile, bad):
-    story = good_story()
-    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(bad))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
-    assert result.title == story["title"] and result.pages[0].text == story["pages"][0]["text"]
+    plan, text = plan_and_text(profile)
+    server = Recorder(gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(bad))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    assert [p.text for p in result.pages] == [p["text"] for p in json.loads(text)["pages"]]
 
 
 async def test_editor_provider_error_keeps_draft(profile, no_real_sleep):
-    story = good_story()
-    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), jr(400, {"error": {"message": "bad"}}))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
-    assert result.title == story["title"]
+    plan, text = plan_and_text(profile)
+    server = Recorder(gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), jr(400, {"error": {"message": "bad"}}))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    assert result.title == json.loads(text)["title"]
 
 
-async def test_editor_shortened_pages_are_rejected(profile):
-    story = good_story()
-    short = json.dumps({"title": "T", "pages": [{"text": "Ок."} for _ in story["pages"]], "moral": "м", "wish": "п"}, ensure_ascii=False)
-    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(short))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
-    assert result.title == story["title"]
+async def test_editor_merge_takes_good_fixes_and_drops_the_one_that_breaks_the_rules(profile):
+    plan, text = plan_and_text(profile)
+    bad = "Раз, два, три — Топ подставил спину, и у мальчика сердце наполнилось радостью до самых краёв."
+    server = Recorder(gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(_fixes((4, ALT_PAGE_4), (5, bad))))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    draft = json.loads(text)
+    assert result.pages[3].text == ALT_PAGE_4                                  # хорошая правка принята
+    assert result.pages[4].text == draft["pages"][4]["text"]                   # правка с запрещённым оборотом отброшена
 
 
 def test_factory_passes_proof_model_to_real_text_providers_and_ignores_it_for_mock(tmp_path):
@@ -444,122 +495,133 @@ def test_factory_passes_proof_model_to_real_text_providers_and_ignores_it_for_mo
     assert make_text_provider(make_settings(tmp_path, text_proof_model="ignored")).proof_model == ""
 
 
-# ----------------------------------------------------------------------- вычитка кыргызского (третий проход)
+# ----------------------------------------------------------------------- вычитка кыргызского (последний проход)
 KY_PROFILE = {**SAMPLE, "language": "ky"}
 
 
-def _proof_reply(edited: str, suffix: str = " Ооба.") -> str:
-    """Ответ корректора: тексты редактора с небольшой правкой."""
-    data = json.loads(edited)
+def _ky():
+    profile = Profile.from_payload(KY_PROFILE)
+    plan, text = plan_and_text(profile)
+    edited_first = json.loads(text)["pages"][0]["text"].replace("ысык", "жылуу")
+    edited = json.loads(text)
+    edited["pages"][0]["text"] = edited_first
+    return profile, plan, text, edited_first, edited
+
+
+def _bless(text: str) -> str:
+    """Маленькая правка корректора, не меняющая длину страницы заметно."""
+    return re.sub(r"([.!?…]+)\s*$", r", ооба\1", text)
+
+
+def _proof_reply(edited: dict, fn=_bless) -> str:
+    data = json.loads(json.dumps(edited))
     data["title"] = "Вычитанное название"
-    data["pages"] = [{"text": p["text"] + suffix} for p in data["pages"]]
+    data["pages"] = [{"text": fn(p["text"])} for p in data["pages"]]
     data["moral"] = "Вычитанная мысль."
-    return json.dumps(data, ensure_ascii=False)
+    return dump(data)
 
 
-def _ky_requests(story: dict, proof_reply):
-    """Запросы сказки, редактора и корректора к поддельному Gemini."""
-    return Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(_edited(story)), proof_reply)
+def _ky_requests(proof_reply):
+    """Запросы режиссёра, автора, редактора (правит страницу 1) и корректора к поддельному Gemini."""
+    profile, plan, text, edited_first, edited = _ky()
+    return profile, text, edited_first, edited, Recorder(
+        gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(_fixes((1, edited_first))), proof_reply)
 
 
 async def test_kyrgyz_proofreading_runs_after_editor_and_merges_only_texts():
-    story = good_story("ky")
-    server = _ky_requests(story, gemini_reply(_proof_reply(_edited(story))))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(
-        Profile.from_payload(KY_PROFILE))
-    assert len(server.requests) == 3
-    editor_system = server.json(1)["systemInstruction"]["parts"][0]["text"]
-    proof_system = server.json(2)["systemInstruction"]["parts"][0]["text"]
-    assert "литературный редактор" in editor_system and "корректор" in proof_system and "носитель кыргызского" in proof_system
-    proof_user = server.requests[2].content.decode()
-    assert "Бряк!" in proof_user and "<draft>" in proof_user                    # корректор получил текст ПОСЛЕ редактора
+    profile, text, edited_first, edited, server = _ky_requests(None)
+    server.responses[-1] = gemini_reply(_proof_reply(edited))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    assert len(server.requests) == 5
+    editor_system = server.json(3)["systemInstruction"]["parts"][0]["text"]
+    proof_system = server.json(4)["systemInstruction"]["parts"][0]["text"]
+    assert "редактор" in editor_system and "корректор" in proof_system and "носитель кыргызского" in proof_system
+    proof_user = server.requests[4].content.decode()
+    assert "жылуу" in proof_user and "<draft>" in proof_user                    # корректор получил текст ПОСЛЕ редактора
     assert "scene" not in proof_user and "hero_visual" not in proof_user         # описания для художника не видит
     assert result.title == "Вычитанное название" and result.moral == "Вычитанная мысль."
-    assert all(p.text.endswith("Бряк! Ооба.") for p in result.pages)
-    assert [p.scene for p in result.pages] == [p["scene"] for p in story["pages"]] and result.hero_visual == story["hero_visual"]
+    assert result.pages[0].text == _bless(edited_first) and all(", ооба" in p.text for p in result.pages)
+    planned = json.loads(plan_and_text(profile)[0])
+    assert [p.scene for p in result.pages] == planned["image_brief"] and result.hero_visual == planned["character_bible"]["hero"]
+    assert result.refrain == planned["refrain"]["text"] and [c.role for c in result.cast] == ["hero", "helper", "obstacle"]
 
 
 async def test_russian_book_gets_no_kyrgyz_proofreading(profile):
-    story = good_story()
-    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(_edited(story)),
-                      gemini_reply(_proof_reply(_edited(story))))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
-    assert len(server.requests) == 2 and result.title == "Новое название"
+    plan, text = plan_and_text(profile)
+    server = Recorder(gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply(NO_FIXES), gemini_reply(dump(json.loads(text))))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    assert len(server.requests) == 4 and result.title == json.loads(text)["title"]
 
 
 async def test_kyrgyz_proofreading_is_off_when_polishing_is_off():
-    story = good_story("ky")
-    server = _ky_requests(story, gemini_reply(_proof_reply(_edited(story))))
-    provider = GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)
+    profile, _, _, edited, server = _ky_requests(None)
+    provider = seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport))
     provider.polish = False
-    await provider.generate_story(Profile.from_payload(KY_PROFILE))
-    assert len(server.requests) == 1
+    await provider.generate_story(profile)
+    assert len(server.requests) == 2                                          # только режиссёр и автор
 
 
-def _russian_pages_of_same_length(story: dict) -> list[dict]:
+def _russian_pages_of_same_length(edited: dict) -> list[dict]:
     """Русский текст той же длины, что у кыргызского: перевод на русский, а не сокращение или раздувание."""
     russian = good_story("ru")["pages"]
-    return [{"text": (ru["text"] * 4)[:len(ky["text"]) + len(" Бряк!")]} for ru, ky in zip(russian, story["pages"])]
+    return [{"text": (ru["text"] * 4)[:len(ky["text"])]} for ru, ky in zip(russian, edited["pages"])]
 
 
 @pytest.mark.parametrize("kind", ["not_json", "wrong_page_count", "shortened", "bloated", "translated_to_russian",
-                                  "provider_error", "empty_page"])
+                                  "provider_error", "empty_page", "breaks_refrain"])
 async def test_kyrgyz_proofreading_failure_keeps_editor_text(kind):
-    story = good_story("ky")
-    edited = json.loads(_edited(story))
+    profile, text, edited_first, edited, _ = _ky_requests(None)
     bad = {
         "not_json": "это не JSON",
-        "wrong_page_count": json.dumps({**edited, "pages": edited["pages"][:5]}, ensure_ascii=False),
-        "shortened": json.dumps({**edited, "pages": [{"text": "Ок."} for _ in edited["pages"]]}, ensure_ascii=False),
-        "bloated": json.dumps({**edited, "pages": [{"text": p["text"] * 2} for p in edited["pages"]]}, ensure_ascii=False),
-        "translated_to_russian": json.dumps({**edited, "pages": _russian_pages_of_same_length(story)}, ensure_ascii=False),
-        "empty_page": json.dumps({**edited, "pages": [{"text": ""}] + edited["pages"][1:]}, ensure_ascii=False),
+        "wrong_page_count": dump({**edited, "pages": edited["pages"][:5]}),
+        "shortened": dump({**edited, "pages": [{"text": "Ок."} for _ in edited["pages"]]}),
+        "bloated": dump({**edited, "pages": [{"text": p["text"] * 2} for p in edited["pages"]]}),
+        "translated_to_russian": dump({**edited, "pages": _russian_pages_of_same_length(edited)}),
+        "empty_page": dump({**edited, "pages": [{"text": ""}] + edited["pages"][1:]}),
+        "breaks_refrain": dump({**edited, "pages": [{"text": p["text"].replace("Бир, эки, үч", "Алты, жети, сегиз")}
+                                                    for p in edited["pages"]]}),
     }.get(kind)
     reply = jr(400, {"error": {"message": "bad"}}) if kind == "provider_error" else gemini_reply(bad)
-    server = _ky_requests(story, reply)
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(
-        Profile.from_payload(KY_PROFILE))
-    assert len(server.requests) == 3
-    assert result.title == "Новое название" and all(p.text.endswith("Бряк!") for p in result.pages)      # остался текст редактора
+    profile, text, edited_first, edited, server = _ky_requests(reply)
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    assert len(server.requests) == 5
+    assert [p.text for p in result.pages] == [p["text"] for p in edited["pages"]]       # остался текст редактора
+    assert result.title == json.loads(text)["title"]
 
 
 async def test_kyrgyz_proofreading_after_failed_editor_still_proofreads_the_draft():
-    story = good_story("ky")
-    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply("это не JSON"),
-                      gemini_reply(_proof_reply(json.dumps({**story, "pages": [{"text": p["text"]} for p in story["pages"]]},
-                                                           ensure_ascii=False))))
-    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(
-        Profile.from_payload(KY_PROFILE))
-    assert result.title == "Вычитанное название" and result.pages[0].text == story["pages"][0]["text"] + " Ооба."
+    profile, plan, text, _, _ = _ky()
+    draft = json.loads(text)
+    server = Recorder(gemini_reply(plan), gemini_reply(text), gemini_reply(CLEAR_JSON), gemini_reply("это не JSON"), gemini_reply(_proof_reply(draft)))
+    result = await seeded(GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)).generate_story(profile)
+    assert result.title == "Вычитанное название" and result.pages[0].text == _bless(draft["pages"][0]["text"])
 
 
 async def test_gemini_uses_proof_model_only_for_the_kyrgyz_proofreading_call():
-    story = good_story("ky")
-    server = _ky_requests(story, gemini_reply(_proof_reply(_edited(story))))
-    provider = GeminiTextProvider(GEMINI_KEY, "main-model", proof_model="models/proof-model", transport=server.transport)
-    await provider.generate_story(Profile.from_payload(KY_PROFILE))
+    profile, _, _, edited, server = _ky_requests(None)
+    server.responses[-1] = gemini_reply(_proof_reply(edited))
+    provider = seeded(GeminiTextProvider(GEMINI_KEY, "main-model", proof_model="models/proof-model", transport=server.transport))
+    await provider.generate_story(profile)
     urls = [str(r.url) for r in server.requests]
-    assert [("main-model" in u, "proof-model" in u) for u in urls] == [(True, False), (True, False), (False, True)]
+    assert [("main-model" in u, "proof-model" in u) for u in urls] == [(True, False)] * 4 + [(False, True)]
 
 
 async def test_openai_uses_proof_model_only_for_the_kyrgyz_proofreading_call():
-    story = good_story("ky")
-    server = Recorder(chat_reply(json.dumps(story, ensure_ascii=False)), chat_reply(_edited(story)),
-                      chat_reply(_proof_reply(_edited(story))))
-    provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "main-model", proof_model="proof-model",
-                                  transport=server.transport)
-    result = await provider.generate_story(Profile.from_payload(KY_PROFILE))
-    assert [server.json(i)["model"] for i in range(3)] == ["main-model", "main-model", "proof-model"]
+    profile, plan, text, edited_first, edited = _ky()
+    server = Recorder(chat_reply(plan), chat_reply(text), chat_reply(CLEAR_JSON), chat_reply(_fixes((1, edited_first))), chat_reply(_proof_reply(edited)))
+    provider = seeded(OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "main-model", proof_model="proof-model",
+                                         transport=server.transport))
+    result = await provider.generate_story(profile)
+    assert [server.json(i)["model"] for i in range(5)] == ["main-model"] * 4 + ["proof-model"]
     assert result.title == "Вычитанное название"
 
 
 async def test_without_proof_model_the_main_model_proofreads():
-    story = good_story("ky")
-    server = Recorder(chat_reply(json.dumps(story, ensure_ascii=False)), chat_reply(_edited(story)),
-                      chat_reply(_proof_reply(_edited(story))))
-    provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "main-model", transport=server.transport)
-    await provider.generate_story(Profile.from_payload(KY_PROFILE))
-    assert {server.json(i)["model"] for i in range(3)} == {"main-model"}
+    profile, plan, text, edited_first, edited = _ky()
+    server = Recorder(chat_reply(plan), chat_reply(text), chat_reply(CLEAR_JSON), chat_reply(_fixes((1, edited_first))), chat_reply(_proof_reply(edited)))
+    provider = seeded(OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "main-model", transport=server.transport))
+    await provider.generate_story(profile)
+    assert {server.json(i)["model"] for i in range(5)} == {"main-model"}
 
 
 async def test_proof_model_errors_name_the_right_setting_and_do_not_break_the_order():
@@ -573,9 +635,9 @@ async def test_proof_model_errors_name_the_right_setting_and_do_not_break_the_or
                                  transport=Recorder(jr(404, {"error": {"message": "x", "code": "model_not_found"}})).transport
                                  )._complete("s", [("user", "u")], "zzz")
     assert "TEXT_PROOF_MODEL" in openai_err.value.message
-    # а сама сказка при неверной модели корректора всё равно готова: остаётся текст редактора
-    story = good_story("ky")
-    server = _ky_requests(story, missing)
-    provider = GeminiTextProvider(GEMINI_KEY, "main", proof_model="zzz", transport=server.transport)
-    result = await provider.generate_story(Profile.from_payload(KY_PROFILE))
-    assert result.title == "Новое название"
+    # а сама книга при неверной модели корректора всё равно готова: остаётся текст редактора
+    profile, text, edited_first, edited, _ = _ky_requests(None)
+    server = Recorder(*[gemini_reply(x) for x in (plan_and_text(profile)[0], text, CLEAR_JSON, _fixes((1, edited_first)))], missing)
+    provider = seeded(GeminiTextProvider(GEMINI_KEY, "main", proof_model="zzz", transport=server.transport))
+    result = await provider.generate_story(profile)
+    assert result.pages[0].text == edited_first and result.title == json.loads(text)["title"]

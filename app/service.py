@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .auth import TgUser
-from .bookgen import PAGE_IMAGE_NAMES, BookResult, build_book, read_cover_meta
+from .bookgen import PAGE_IMAGE_NAMES, BookResult, build_book, read_cover_meta, read_layout_meta
 from .bookinfo import book_labels
 from .config import Settings
 from .declension import genitive_ru
@@ -22,6 +22,8 @@ from .errors import (AppError, BusyError, ClosedError, ConflictError, LimitError
                      StoryError, ValidationError)
 from .paydesk import PaymentDesk
 from .imaging import hex_color, band_color, prepare_photo
+from .layout import text_side
+from .overlay import emphasis_runs
 from .links import make_token
 from .notify import Notifier
 from .payments import PaymentProvider
@@ -53,26 +55,26 @@ INVITE_LIST_LIMIT = 30
 # --- предложение печатной версии
 PRINT_TITLE = "Хотите заказать печатную версию?"
 PRINT_NOTE = "Мягкая фотокнига 21×21 см"
-PRINT_MESSAGE = "Здравствуйте! Хочу заказать печатную версию сказки"
+PRINT_MESSAGE = "Здравствуйте! Хочу заказать печатную версию книги"
 PRINT_BUTTON = "Заказать в WhatsApp"
-ACCESS_MESSAGE = "Здравствуйте! Хочу получить ссылку на создание сказки"      # текст в WhatsApp для получения доступа
+ACCESS_MESSAGE = "Здравствуйте! Хочу получить ссылку на создание книги"      # текст в WhatsApp для получения доступа
 
 # --- обещание про фото: удаляем сразу после создания книги и в любом случае не позже чем через сутки
 PHOTO_TTL = DAY
 CLEANUP_PERIOD = 60 * 60          # как часто main.py запускает cleanup()
 PHOTO_PURGE_AFTER = PHOTO_TTL - CLEANUP_PERIOD   # режем с запасом на период уборки: фото живёт не дольше суток
 
-GENERIC_ERROR = ("Не получилось создать сказку: на нашей стороне произошёл сбой. "
+GENERIC_ERROR = ("Не получилось создать книгу: на нашей стороне произошёл сбой. "
                  "Эта попытка не засчитана — попробуйте ещё раз через несколько минут.")
-STORY_ERROR = ("Сказка пока не получилась: ответ писателя не прошёл проверку. "
+STORY_ERROR = ("Книга пока не получилась: ответ писателя не прошёл проверку. "
                "Эта попытка не засчитана — попробуйте ещё раз.")
-INTERRUPTED = ("Сервер был перезапущен, и создание сказки прервалось. "
-               "Эта попытка не засчитана — создайте сказку ещё раз.")
+INTERRUPTED = ("Сервер был перезапущен, и создание книги прервалось. "
+               "Эта попытка не засчитана — создайте книгу ещё раз.")
 
 
 def safe_filename(title: str) -> str:
     name = re.sub(r"[^\w\- ]+", "", title, flags=re.UNICODE).strip()
-    return (name or "Сказка") + ".pdf"
+    return (name or "Книга") + ".pdf"
 
 
 def whatsapp_url(digits: str, message: str = PRINT_MESSAGE) -> str:
@@ -261,7 +263,7 @@ class OrderService:
         now = time.time()
         active = self.db.active_order(user_id)
         if active:
-            raise ConflictError("Ваша сказка уже создаётся. Дождитесь, когда она будет готова, — это займёт несколько минут.",
+            raise ConflictError("Ваша книга уже создаётся. Дождитесь, когда она будет готова, — это займёт несколько минут.",
                                 order_id=active["id"])
         since = now - DAY
         used = self.db.count_orders_since(user_id, since, include_errors=False)
@@ -269,8 +271,8 @@ class OrderService:
             oldest = self.db.oldest_counted_since(user_id, since) or now
             wait = max(60.0, oldest + DAY - now)
             raise LimitError(
-                f"Вы уже создали {used} {ru_plural(used, 'сказку', 'сказки', 'сказок')} за последние 24 часа — "
-                f"это дневной лимит ({limit}). Новую сказку можно будет создать через {human_wait(wait)}.")
+                f"Вы уже создали {used} {ru_plural(used, 'книгу', 'книги', 'книг')} за последние 24 часа — "
+                f"это дневной лимит ({limit}). Новую книгу можно будет создать через {human_wait(wait)}.")
         attempts = self.db.count_orders_since(user_id, since, include_errors=True)
         if attempts >= limit * 3 + 3:
             raise LimitError("Слишком много попыток за сутки. Подождите и попробуйте завтра.")
@@ -291,7 +293,7 @@ class OrderService:
                 raise ValidationError("Чтобы использовать фото, нужно отметить согласие родителя на обработку фото.",
                                       field="photo_consent")
             if not self.photo_supported():
-                raise ValidationError("Сейчас фото не принимается. Создайте сказку без фото.", field="photo")
+                raise ValidationError("Сейчас фото не принимается. Создайте книгу без фото.", field="photo")
         profile = Profile.from_payload(payload, has_photo=has_photo)
         photo = prepare_photo(photo_raw) if has_photo else None
 
@@ -350,7 +352,7 @@ class OrderService:
         profile = Profile.from_dict(json.loads(row["profile_json"]))
         who = self.db.get_user(user.id)
         label = (who["first_name"] if who and who["first_name"] else "Покупатель") + (f" (@{who['username']})" if who and who["username"] else "")
-        text = (f"💳 Новый чек на {self.price_text()}\nОт: {label}\nСказка для: {profile.name}, {profile.age} "
+        text = (f"💳 Новый чек на {self.price_text()}\nОт: {label}\nКнига для: {profile.name}, {profile.age} "
                 f"{ru_plural(profile.age, 'год', 'года', 'лет')}\nЗаказ: {order_id}")
         notify = getattr(self.notifier, "notify_payment", None)
         try:
@@ -376,7 +378,7 @@ class OrderService:
         self.db.update_order(order_id, status="queued", paid=1, paid_at=time.time(), pay_note=None)
         self._start(order_id)
         log.info("Заказ %s: оплата подтверждена, генерация запущена", order_id)
-        await self._tell_user(row["user_id"], "✅ Оплата получена, спасибо! Начинаем писать вашу сказку. "
+        await self._tell_user(row["user_id"], "✅ Оплата получена, спасибо! Начинаем писать вашу книгу. "
                                               "Откройте приложение, чтобы следить за прогрессом, — книга придёт сюда 💛")
 
     async def reject(self, order_id: str, reason: str | None = None) -> None:
@@ -463,7 +465,8 @@ class OrderService:
             async with self.gen_sem:
                 result = await build_book(
                     profile, self.text, self.image, odir, photo=photo, image_sem=self.image_sem,
-                    mock=self.settings.uses_mock, on_status=on_status, on_story=on_story,
+                    mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
+                    on_status=on_status, on_story=on_story,
                 )
             self.db.update_order(order_id, status="done", finished_at=time.time())
             log.info("Заказ %s готов", order_id)
@@ -496,7 +499,7 @@ class OrderService:
 
     async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True) -> bool:
         filename = safe_filename(story.title)
-        caption = f"🎉 Готово! «{story.title}» — персональная сказка. Сохраните файл или откройте его на любом устройстве 💛"
+        caption = f"🎉 Готово! «{story.title}» — персональная книга. Сохраните файл или откройте его на любом устройстве 💛"
         try:
             ok = await self.notifier.send_book(user_id, pdf_path, filename, caption)
         except Exception:  # noqa: BLE001
@@ -540,7 +543,7 @@ class OrderService:
             raise NotFoundError("Такой книги нет.")
         if row["files_deleted"]:
             raise NotFoundError(f"Файлы удалены через {self.settings.keep_files_days} дн. после создания. "
-                                "Создайте сказку заново.")
+                                "Создайте книгу заново.")
         if name == "book.pdf":
             path = self.order_dir(order_id) / "book.pdf"
         elif IMAGE_NAME_RE.match(name):
@@ -571,15 +574,21 @@ class OrderService:
         pages_done = sum(1 for i in range(1, PAGES + 1) if (odir / f"p{i}.jpg").exists()) if not files_deleted else 0
         pages = []
         if story:
+            styles = read_layout_meta(odir).get("text_styles") or []
             for i, page in enumerate(story.pages, start=1):
                 pages.append({"text": page.text,
-                              "image_url": url(f"img/p{i}.jpg") if (odir / f"p{i}.jpg").exists() else None})
+                              "image_url": url(f"img/p{i}.jpg") if (odir / f"p{i}.jpg").exists() else None,
+                              "lines": [[{"t": t, "a": a} for t, a in line] for line in emphasis_runs(page.text)],
+                              "text_side": text_side(i),                       # половина широкой картинки под текст
+                              "text_style": styles[i - 1] if i <= len(styles) else None})   # как оформлен в PDF
 
         view = {
             "id": order_id,
             "status": status,
             "mock": self.settings.uses_mock,
             "language": profile.language,
+            "style": profile.style,
+            "style_label": profile.style_label,
             "title": row["title"],
             "progress": self._progress(status, cover_ready, pages_done),
             "cover_url": url("img/cover.jpg") if cover_ready else None,
@@ -612,7 +621,7 @@ class OrderService:
         if status == "queued":
             return {**base, "percent": 2, "stage": -1, "label": "Жду очереди"}
         if status == "writing":
-            return {**base, "percent": 8, "stage": 0, "label": "Пишу сказку"}
+            return {**base, "percent": 8, "stage": 0, "label": "Пишу книгу"}
         if status == "drawing":
             if not cover_ready:
                 return {**base, "percent": 15, "stage": 1, "label": "Рисую обложку"}

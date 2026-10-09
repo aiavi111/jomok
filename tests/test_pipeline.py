@@ -14,9 +14,9 @@ from app.story import PAGES
 from .conftest import SAMPLE, ScriptedImage, provider_error
 
 
-async def run(tmp_path, image, profile, *, photo=None, text=None):
+async def run(tmp_path, image, profile, *, photo=None, text=None, **kw):
     return await build_book(profile, text or MockTextProvider(), image, tmp_path / "order", photo=photo,
-                            image_sem=asyncio.Semaphore(3), mock=True)
+                            image_sem=asyncio.Semaphore(3), mock=True, **kw)
 
 
 def pdf_pages(path) -> int:
@@ -77,7 +77,7 @@ async def test_cover_failure_does_not_break_pages_and_cover_is_not_used_as_refer
     assert all(result.story.hero_visual in c["prompt"] for c in page_calls)  # героя описываем текстом
 
 
-async def test_prompt_order_is_scene_then_hero_then_style_without_references(tmp_path, profile):
+async def test_prompt_order_is_layout_then_scene_then_hero_then_style_without_references(tmp_path, profile):
     image = ScriptedImage(supports_reference=False)
     result = await run(tmp_path, image, profile, photo=b"\xff\xd8secret-photo")
     pages = sorted((c for c in image.calls if c["label"].startswith("Страница")), key=lambda c: int(c["label"].split()[-1]))
@@ -86,8 +86,10 @@ async def test_prompt_order_is_scene_then_hero_then_style_without_references(tmp
         prompt = call["prompt"]
         scene = result.story.pages[number - 1].scene
         assert call["refs"] is None                                     # фото и обложка не уходят провайдеру без референсов
-        assert prompt.startswith(scene)
-        assert prompt.index(scene) < prompt.index(result.story.hero_visual) < prompt.index(prompts.STYLE)
+        assert prompt.lower().startswith("wide panoramic double-page spread, 2:1")      # сначала разметка кадра
+        assert prompt.index(prompts.page_layout_clause(number, has_refs=False)) == 0
+        assert prompt.index(scene) < prompt.index(result.story.hero_visual) < prompt.index(prompts.LEGAL_CLAUSE) \
+            < prompt.index(prompts.STYLE)
         assert len(prompt) <= 2000
     assert all(c["refs"] is None for c in image.calls)                   # фото вообще не передавалось
 
@@ -148,26 +150,83 @@ async def test_no_more_than_three_images_are_drawn_at_once(tmp_path, profile):
     assert len(image.calls) == PAGES + 1            # обложка и страницы сказки
 
 
-async def test_every_illustration_is_requested_and_saved_as_a_1024_square(tmp_path, profile):
-    """Соотношение сторон 1:1: просим у провайдера квадрат, а если пришёл не квадрат — обрезаем по центру."""
+async def test_cover_is_requested_square_and_pages_wide_and_saved_at_exactly_those_sizes(tmp_path, profile):
+    """Обложка 1024x1024 (1:1), страницы 2048x1024 (2:1). Что бы ни прислал провайдер, файл обрезается по центру
+    до нужного соотношения и приводится к размеру точно."""
     import io
 
     from PIL import Image
 
-    class Wide(ScriptedImage):
+    class Squares(ScriptedImage):
         async def generate(self, prompt, refs=None, size="1024x1024", *, label=None):
             await super().generate(prompt, refs, size, label=label)
             out = io.BytesIO()
-            Image.new("RGB", (1536, 1024), (240, 180, 60)).save(out, "PNG")      # провайдер прислал «широкую» картинку
+            Image.new("RGB", (1024, 1024), (240, 180, 60)).save(out, "PNG")      # как Cloudflare: всегда квадрат
             return out.getvalue()
 
-    image = Wide()
+    image = Squares()
     result = await run(tmp_path, image, profile)
-    assert len(image.calls) == PAGES + 1 and {c["size"] for c in image.calls} == {"1024x1024"}
-    for name in ["cover"] + [f"p{i}" for i in range(1, PAGES + 1)]:
-        with Image.open(tmp_path / "order" / f"{name}.jpg") as saved:
-            assert saved.size == (1024, 1024), name
+    sizes = {c["label"]: c["size"] for c in image.calls}
+    assert len(image.calls) == PAGES + 1
+    assert sizes["Обложка"] == "1024x1024"
+    assert all(sizes[f"Страница {i}"] == "2048x1024" for i in range(1, PAGES + 1))
+    with Image.open(tmp_path / "order" / "cover.jpg") as saved:
+        assert saved.size == (1024, 1024) and saved.format == "JPEG"
+    for i in range(1, PAGES + 1):
+        with Image.open(tmp_path / "order" / f"p{i}.jpg") as saved:
+            assert saved.size == (2048, 1024) and saved.format == "JPEG", f"p{i}"
     assert pdf_pages(result.pdf_path) == PAGES + 2
+
+
+async def test_wide_picture_from_the_provider_is_cropped_to_a_square_cover_and_kept_wide_for_pages(tmp_path, profile):
+    import io
+
+    from PIL import Image
+
+    class AnyShape(ScriptedImage):
+        async def generate(self, prompt, refs=None, size="1024x1024", *, label=None):
+            await super().generate(prompt, refs, size, label=label)
+            out = io.BytesIO()
+            Image.new("RGB", (1536, 1024), (240, 180, 60)).save(out, "PNG")
+            return out.getvalue()
+
+    await run(tmp_path, AnyShape(), profile)
+    with Image.open(tmp_path / "order" / "cover.jpg") as cover, Image.open(tmp_path / "order" / "p1.jpg") as page:
+        assert cover.size == (1024, 1024) and page.size == (2048, 1024)
+
+
+async def test_pages_are_saved_at_quality_88_and_the_cover_at_90(tmp_path, profile):
+    await run(tmp_path, ScriptedImage(), profile)
+    from PIL import Image
+    with Image.open(tmp_path / "order" / "p1.jpg") as page, Image.open(tmp_path / "order" / "cover.jpg") as cover:
+        # у JPEG качество видно по таблице квантования: чем выше качество, тем меньше числа в таблице
+        assert sum(page.quantization[0]) > sum(cover.quantization[0])
+
+
+async def test_failed_wide_page_gets_a_wide_placeholder_in_the_right_proportions(tmp_path, profile):
+    from PIL import Image
+    image = ScriptedImage(fail=lambda n, p, label: provider_error("сбой", no_retry=True) if label == "Страница 2" else None)
+    await run(tmp_path, image, profile)
+    with Image.open(tmp_path / "order" / "p2.jpg") as page, Image.open(tmp_path / "order" / "cover.jpg") as cover:
+        assert page.size == (2048, 1024) and cover.size == (1024, 1024)
+
+
+async def test_overlay_mode_is_passed_to_the_pdf_and_chosen_styles_are_saved_for_the_app(tmp_path, profile):
+    import json
+    result = await run(tmp_path, ScriptedImage(), profile, overlay_mode="plate")
+    assert result.text_styles and set(result.text_styles) <= {"plate-cream", "plate-dark"}
+    meta = json.loads((tmp_path / "order" / "layout.meta.json").read_text(encoding="utf-8"))
+    assert meta["overlay_mode"] == "plate" and meta["text_styles"] == result.text_styles
+    assert meta["text_sides"] == ["right" if i % 2 else "left" for i in range(1, PAGES + 1)]
+    from app.bookgen import read_layout_meta
+    assert read_layout_meta(tmp_path / "order") == meta and read_layout_meta(tmp_path / "nowhere") == {}
+
+
+async def test_wrong_overlay_mode_is_refused_before_any_picture_is_paid_for(tmp_path, profile):
+    image = ScriptedImage()
+    with pytest.raises(ValueError):
+        await run(tmp_path, image, profile, overlay_mode="sticker")
+    assert image.calls == []
 
 
 async def test_status_callbacks_in_order_and_images_saved_before_pdf(tmp_path, profile):

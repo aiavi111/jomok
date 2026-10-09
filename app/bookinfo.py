@@ -2,23 +2,24 @@
 from __future__ import annotations
 
 from .declension import genitive_ru
+from .layout import COVER_SIZE, PAGE_SIZE, text_side
 from .profile import Profile
-from .story import Story
+from .story import PAGES, Story
 
 MOCK_NOTE = "Тестовая сборка: заглушки"
 
 _LABELS = {
     "ru": {
-        "caption": "Сказка для {gen}",
+        "caption": "Книга для {gen}",
         "dedication_title": "Для {gen}",
         "the_end": "Конец",
-        "signature": "Эта сказка создана специально для {gen}",
+        "signature": "Эта книга создана специально для {gen}",
     },
     "ky": {
-        "caption": "{name} үчүн жомок",
+        "caption": "{name} үчүн китеп",
         "dedication_title": "{name} үчүн",
         "the_end": "Аягы",
-        "signature": "Бул жомок атайын {name} үчүн жазылган",
+        "signature": "Бул китеп атайын {name} үчүн жазылган",
     },
 }
 
@@ -34,3 +35,14 @@ def book_labels(story: Story, profile: Profile) -> dict:
         "mock_note": MOCK_NOTE,
     })
     return labels
+
+
+def book_format() -> dict:
+    """Формат книги для Mini App (/api/config): число страниц и разворотов, размеры картинок, где лежит текст."""
+    return {
+        "pages": PAGES,
+        "spreads": PAGES + 2,                                    # обложка, страницы истории, финал
+        "cover_image": {"width": COVER_SIZE[0], "height": COVER_SIZE[1], "ratio": "1:1"},
+        "page_image": {"width": PAGE_SIZE[0], "height": PAGE_SIZE[1], "ratio": "2:1"},
+        "text_side": {"odd": text_side(1), "even": text_side(2)},   # половина широкой картинки, на которой лежит текст
+    }

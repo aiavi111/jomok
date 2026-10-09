@@ -1,4 +1,4 @@
-/* Персональная сказка — Mini App.
+/* Персональная книга — Mini App.
    Фон и текст берутся из темы Telegram (--tg-theme-*), фирменные цвета — ночное небо Тянь-Шаня:
    индиго, фиолетовый, золото и коралл. Страницы книги всегда «бумажные», как в PDF. */
 
@@ -98,7 +98,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); scroll-padding-bottom: 104px; }   /* липкая кнопка внизу не закрывает поле при прокрутке к нему */
 
 body {
   margin: 0;
@@ -194,6 +194,9 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
 .form-error {
   margin: 0 0 10px; padding: 12px 14px; border-radius: 14px;
   background: rgba(214, 56, 74, .12); color: var(--danger); font-size: 15px; font-weight: 700;
+}
+@supports (color: color-mix(in srgb, red, blue)) {
+  .form-error { background: color-mix(in srgb, var(--danger) 12%, var(--bg)); }       /* непрозрачная плашка: текст под ней не просвечивает */
 }
 
 .field { display: block; margin-bottom: 14px; }
@@ -328,6 +331,7 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
 .summary .e { grid-row: 1 / span 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; font-size: 22px; background: color-mix(in srgb, var(--hue, var(--brand)) 20%, var(--bg)); }
 .summary .k { grid-column: 2; color: var(--muted); font-size: 13px; font-weight: 800; }
 .summary .v { grid-column: 2; min-width: 0; overflow-wrap: anywhere; font-size: 16.5px; font-weight: 800; }
+.summary .v.clamp { display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .summary .edit { grid-column: 3; grid-row: 1 / span 2; border: 0; background: none; color: var(--brand-ink); font-size: 15px; font-weight: 800; min-height: 44px; padding: 0 4px; }
 .sum-note { margin: 16px 4px 0; color: var(--muted); font-size: 14.5px; font-weight: 700; }
 
@@ -410,7 +414,8 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
 .wait h2.sub { margin: 0 0 14px; font-size: 18px; font-weight: 900; }
 .preview { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
 .prow { display: flex; gap: 14px; align-items: flex-start; }
-.thumb { position: relative; flex: none; width: 108px; height: 108px; border-radius: 18px; overflow: hidden; background: var(--sk1); box-shadow: 0 8px 16px -10px rgba(30, 20, 80, .5); }
+.thumb { position: relative; flex: none; width: 120px; aspect-ratio: 2 / 1; border-radius: 16px; overflow: hidden; background: var(--sk1); box-shadow: 0 8px 16px -10px rgba(30, 20, 80, .5); }
+.prow[data-k="cover"] .thumb { aspect-ratio: 1 / 1; border-radius: 18px; }   /* обложка квадратная, страницы широкие 2:1 */
 .thumb.shimmer, .skel { background: linear-gradient(100deg, var(--sk1) 30%, var(--sk2) 50%, var(--sk1) 70%); background-size: 220% 100%; animation: shimmer 1.5s linear infinite; }
 .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transform: scale(1.06); transition: opacity .6s var(--ease), transform .8s var(--ease); }
 .thumb img.on { opacity: 1; transform: none; }
@@ -468,13 +473,17 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
 .slide.cover .band h2 { margin: 0; font-family: var(--book-title); font-size: clamp(19px, 7cqw, 27px); line-height: 1.2; font-weight: 700; text-wrap: balance; overflow-wrap: anywhere; max-width: 100%; }
 .slide.cover .band p { margin: 0; font-family: var(--book-title); font-weight: 700; opacity: .92; font-size: clamp(12px, 4cqw, 15px); max-width: 100%; overflow-wrap: anywhere; }
 
-/* страница сказки: картинка на всю ширину, рядом бумажная страница с текстом (у нечётных картинка сверху, у чётных снизу) */
-.leaf { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 100cqw; padding: 9cqw 9cqw 6cqw; background: var(--paper); }
-.slide.page .txt {
-  flex: 1; display: flex; align-items: center; min-width: 0; padding: 1cqw 0;
-  font-size: clamp(18px, 7cqw, 20px); line-height: 1.45; font-weight: 600; white-space: pre-line;
-  overflow-wrap: anywhere; hyphens: manual;
+/* страница истории: широкая картинка 2:1 на всю ширину слайда (картинка всегда сверху), под ней бумажная карточка с крупным текстом */
+.slide.page .art.wide { aspect-ratio: 2 / 1; border-radius: 14px; }
+.slide.page .art.wide.sq { aspect-ratio: 1 / 1; }          /* страницы старых книг квадратные: не обрезаем */
+.leaf { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 36cqw; padding: 6cqw 6cqw 5cqw; background: var(--paper); }
+.slide.page .txt { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; padding: 1cqw 0; }
+.slide.page .txt p {
+  margin: 0; max-width: 100%; text-align: center;
+  font-size: clamp(20px, 6.2cqw, 22px); line-height: 1.4; font-weight: 700; white-space: pre-line;
+  overflow-wrap: anywhere; hyphens: manual; text-wrap: pretty;
 }
+.acc { color: #D4472F; }                                    /* реплики после тире и фразы с «!» */
 .folio { flex: none; display: flex; flex-direction: column; align-items: center; gap: 3cqw; margin-top: 5cqw; }
 .divider { display: flex; align-items: center; gap: 2.2cqw; width: 62cqw; max-width: 100%; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--book-gold); }
@@ -496,6 +505,7 @@ h1.q { margin: 16px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 900;
 .slide.center .wish { margin: 0; max-width: 100%; font-weight: 600; font-size: clamp(15px, 5.8cqw, 19px); line-height: 1.5; overflow-wrap: anywhere; }
 .slide.center .sig { margin: 0; max-width: 100%; font-weight: 600; color: var(--paper-muted); font-size: 13px; overflow-wrap: anywhere; }
 .slide .mock { margin: 0; color: #9a9a9a; font-size: 11px; font-style: italic; font-weight: 500; }
+.pager-cap { margin: -8px 28px 0; text-align: center; color: var(--muted); font-size: 13.5px; font-weight: 700; line-height: 1.4; text-wrap: balance; }
 .pager-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 8px 0 0; }
 .pager-nav .pn { width: 46px; height: 46px; border-radius: 23px; border: 0; background: var(--brand-soft); color: var(--brand-ink); display: grid; place-items: center; transition: transform .15s var(--ease); }
 .pager-nav .pn:active:not(:disabled) { transform: scale(.88); }
@@ -702,4 +712,64 @@ label.btn, label.photo-pick { cursor: pointer; user-select: none; -webkit-user-s
 #inv-note::placeholder { font-size: 15px; }
 @media (max-width: 340px) {
   #inv-note::placeholder { font-size: 13px; }
+}
+
+/* шаг «Что ещё добавить?» и тема книги */
+.notice .em { flex: none; font-size: 20px; line-height: 1.25; }
+.ex-meta { margin: 4px 4px 10px; }
+.ex-chips { margin-bottom: 4px; }
+.ex-chips .chip { min-height: 44px; padding: 0 16px 0 12px; font-size: 15.5px; }
+.field.tight { margin-bottom: 0; }
+.field.tight > .textarea, .field.tight > .input { display: block; }
+.field.fav { margin-top: 22px; }
+.field.fav + .counter { margin-bottom: 16px; }
+#in-fav, #in-ct { text-overflow: ellipsis; }
+#in-fav::placeholder { font-size: 13.5px; }
+#in-ct::placeholder { font-size: 15px; }
+@media (max-width: 340px) {
+  #in-fav::placeholder { font-size: 12px; }
+  #in-ct::placeholder { font-size: 13px; }
+}
+
+/* шаг «Какой мир любит малыш?»: список миров, подсказка для «своего варианта» и поле с названиями мультиков */
+.world-note { margin: 14px 0 0; animation: in-fwd .25s var(--ease); }
+.field.cartoons { margin-top: 24px; }
+.field-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 6px 6px 0; }
+.field-foot .note { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: 13.5px; font-weight: 700; line-height: 1.35; text-wrap: pretty; }
+.field-foot .counter { flex: none; margin: 0; }
+#in-cart { text-overflow: ellipsis; }
+#in-cart::placeholder { font-size: 15px; }
+@media (max-width: 340px) {
+  #in-cart::placeholder { font-size: 13px; }
+}
+
+/* шаг «В каком стиле рисуем книгу?»: крупные карточки, слева цветной акцент-превью (без картинок: только цвет и свет) */
+.opts.styles { gap: 14px; }
+.opt.style-opt { min-height: 104px; padding: 14px 16px 14px 14px; gap: 16px; }
+.opt.style-opt .e.sty { width: 76px; height: 76px; border-radius: 24px; font-size: 40px; transition: transform .25s var(--ease-out); }
+.opt.style-opt .t b { font-size: 19px; }
+.opt.style-opt .t small { margin-top: 4px; font-size: 14.5px; }
+.opt.style-opt[aria-checked=true] .e.sty { transform: rotate(-4deg) scale(1.05); }
+/* 3D-мультик: тёплый объёмный градиент с бликом и мягкой тенью снизу */
+.opt.style-opt .sty-cartoon3d {
+  background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, .6), rgba(255, 255, 255, 0) 46%), linear-gradient(150deg, #ffd47a, #ff9460);
+  box-shadow: inset 0 -7px 12px rgba(190, 70, 20, .3), inset 0 3px 6px rgba(255, 255, 255, .55), 0 8px 14px -8px rgba(255, 130, 60, .75);
+  text-shadow: 0 3px 4px rgba(150, 60, 10, .3);
+}
+/* 2D-мультик: плоские цвета с чёткой границей и тёмным контуром, без градиентов и теней */
+.opt.style-opt .sty-flat2d {
+  background: linear-gradient(135deg, #5cb8ff 0 50%, #ffd23f 50% 100%);
+  box-shadow: inset 0 0 0 3px #26324d;
+}
+/* реалистичный: нейтральный «фото-вид» — серо-синий тон со световым пятном и виньеткой */
+.opt.style-opt .sty-realistic {
+  background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, .5), rgba(255, 255, 255, 0) 55%), linear-gradient(165deg, #cfd5dc, #8e97a3 62%, #59616c);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, .38);
+}
+@media (prefers-reduced-motion: reduce) {
+  .opt.style-opt[aria-checked=true] .e.sty { transform: none; }
+}
+@media (max-width: 340px) {
+  .opt.style-opt { gap: 12px; padding-right: 12px; }
+  .opt.style-opt .e.sty { width: 64px; height: 64px; font-size: 34px; border-radius: 20px; }
 }

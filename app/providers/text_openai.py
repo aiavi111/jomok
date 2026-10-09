@@ -32,6 +32,7 @@ class OpenAITextProvider(TextProvider):
         self.proof_model = proof_model
         self._transport = transport
         self._json_mode = True
+        self.effort = ""            # reasoning_effort (OPENAI_TEXT_EFFORT); пусто — не передаём, модель решает сама
 
     def _body(self, system: str, messages: list[tuple[str, str]], model: str | None = None) -> dict:
         body: dict = {
@@ -41,6 +42,8 @@ class OpenAITextProvider(TextProvider):
         }
         if self._json_mode:
             body["response_format"] = {"type": "json_object"}
+        if self.effort and not model:
+            body["reasoning_effort"] = self.effort      # только основная модель: у вычитки (TEXT_PROOF_MODEL) может быть другой набор режимов
         return body
 
     async def _post(self, client: httpx.AsyncClient, system: str, messages: list[tuple[str, str]],
@@ -64,7 +67,7 @@ class OpenAITextProvider(TextProvider):
         choices = json_body(resp).get("choices") or []
         message = (choices[0].get("message") or {}) if choices else {}
         if message.get("refusal"):
-            raise ProviderError("OpenAI отказался писать эту сказку. Попробуйте изменить анкету.", no_retry=True)
+            raise ProviderError("OpenAI отказался писать эту книгу. Попробуйте изменить анкету.", no_retry=True)
         content = message.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ProviderError("OpenAI вернул пустой ответ. Попробуйте ещё раз.")

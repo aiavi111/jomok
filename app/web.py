@@ -13,10 +13,12 @@ from aiohttp import web
 
 from . import __version__, options
 from .auth import TgUser, authenticate
+from .bookinfo import book_format
 from .config import ROOT, Settings
 from .errors import AppError, AuthError, ConflictError, ForbiddenError, NotFoundError, ValidationError
 from .imaging import MAX_PHOTO_BYTES
 from .links import check_token
+from .profile import CARTOONS_MAX, FAVORITES_MAX, REQUEST_MAX
 from .service import OrderService, invite_url
 from .db import Database
 
@@ -138,7 +140,9 @@ async def get_config(request: web.Request) -> web.Response:
             "books_per_day": settings.max_books_per_user_per_day,
             "remaining_today": service.remaining_today(user.id),
             "name_max": 30, "text_max": 120, "likes_max": 3, "traits_max": 3,
+            "request_max": REQUEST_MAX, "favorites_max": FAVORITES_MAX, "cartoons_max": CARTOONS_MAX,
         },
+        "book_format": book_format(),
         "options": options.public_options(),
         "active_order_id": service.active_order_id(user.id),
         "bot_username": bot_info.get("username"),

@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 
 from . import options
+from . import writer_data
 from .errors import ValidationError
 from .textutil import clean_text
 
@@ -14,7 +15,18 @@ NAME_MAX = 30
 TEXT_MAX = 120
 LIKE_MAX = 60
 LIST_MAX = 3
+REQUEST_MAX = 300                    # «Что вы хотите увидеть в книге?»
+FAVORITES_MAX = 120                  # «Любимые герои, животные, игрушки»
+CARTOONS_MAX = 120                   # «Любимые мультфильмы или герои»: только вдохновение (роль и настроение, без имён и внешности)
+# Пометка для писателя рядом с cartoons в <child>: из названий берётся только роль и функция героя
+CARTOONS_NOTE = ("ТОЛЬКО ВДОХНОВЕНИЕ: бери роль, настроение и функцию героев (например, весёлая проказница и добрый большой "
+                 "опекун), но НЕ имена, одежду, цвета и внешность; названий этих мультфильмов и героев в книге быть не должно")
 AGE_MIN, AGE_MAX = 3, 9
+
+
+def _known(value, allowed) -> bool:
+    """value — один из ключей allowed. Клиент мог прислать список или объект: такое значение не ключ, а не повод для сбоя."""
+    return isinstance(value, str) and value in allowed
 
 
 def _truthy(value) -> bool:
@@ -33,6 +45,13 @@ class Profile:
     traits: list[str] = field(default_factory=list)   # id из options.TRAITS
     place: str = "mountains"
     place_custom: str = ""
+    topic: str = options.DEFAULT_TOPIC   # id из options.TOPICS: о чём книга
+    topic_custom: str = ""               # своя тема, если topic == "custom"
+    request: str = ""                    # свободный текст: что хотят увидеть в книге
+    favorites: str = ""                  # свободный текст: любимые герои, животные, игрушки
+    world: str | None = None             # id из options.WORLDS: мир книги («как в любимом мультфильме»); None — мира нет
+    cartoons: str = ""                   # свободный текст: любимые мультфильмы и герои (только вдохновение для писателя)
+    style: str = options.DEFAULT_STYLE   # id из options.STYLES: стиль иллюстраций; неизвестный или пустой — по умолчанию
     value: str = "kindness"
     islamic: bool = False
     headscarf: bool = False
@@ -67,7 +86,7 @@ class Profile:
         except (TypeError, ValueError):
             raise ValidationError("Выберите возраст ребёнка от 3 до 9 лет.", field="age")
         if not AGE_MIN <= age <= AGE_MAX:
-            raise ValidationError("Сказки подходят детям от 3 до 9 лет. Выберите возраст из этого диапазона.",
+            raise ValidationError("Книги подходят детям от 3 до 9 лет. Выберите возраст из этого диапазона.",
                                   field="age")
 
         gender = data.get("gender")
@@ -101,7 +120,7 @@ class Profile:
             raise ValidationError("Список черт характера пришёл в неверном виде.", field="traits")
         traits: list[str] = []
         for item in raw_traits:
-            if item not in options.TRAITS:
+            if not _known(item, options.TRAITS):
                 raise ValidationError("Неизвестная черта характера. Обновите приложение и выберите заново.",
                                       field="traits")
             if item not in traits:
@@ -110,19 +129,42 @@ class Profile:
             raise ValidationError(f"Выберите не больше {LIST_MAX} черт характера.", field="traits")
 
         place = data.get("place")
-        if place not in options.PLACES:
-            raise ValidationError("Выберите, где происходит сказка.", field="place")
+        if not _known(place, options.PLACES):
+            raise ValidationError("Выберите, где происходит действие книги.", field="place")
         place_custom = text("place_custom", "Место") if place == "custom" else ""
         if place == "custom" and not place_custom:
-            raise ValidationError("Опишите, где происходит сказка, или выберите готовый вариант.",
+            raise ValidationError("Опишите, где происходит действие, или выберите готовый вариант.",
                                   field="place_custom")
 
         value = data.get("value")
-        if value not in options.VALUES:
-            raise ValidationError("Выберите, чему учит сказка.", field="value")
+        if not _known(value, options.VALUES):
+            raise ValidationError("Выберите, чему учит книга.", field="value")
+
+        topic = data.get("topic")
+        if topic is None or topic == "":
+            topic = options.DEFAULT_TOPIC                      # старые клиенты тему не присылают: приключение
+        if not _known(topic, options.TOPICS):
+            raise ValidationError("Выберите тему книги из списка.", field="topic")
+        topic_custom = text("topic_custom", "Своя тема") if topic == "custom" else ""
+        request = text("request", "Что вы хотите увидеть в книге", REQUEST_MAX)
+        favorites = text("favorites", "Любимые герои, животные, игрушки", FAVORITES_MAX)
+        if topic == "custom" and not (topic_custom or request):
+            raise ValidationError("Опишите свою тему или напишите, что хотите увидеть в книге.",
+                                  field="topic_custom")
+
+        world = data.get("world")
+        if world is None or world == "":
+            world = None                                       # мир необязателен: старые клиенты его не присылают
+        elif not _known(world, options.WORLDS):
+            raise ValidationError("Выберите мир книги из списка.", field="world")
+        cartoons = text("cartoons", "Любимые мультфильмы", CARTOONS_MAX)
+
+        style = data.get("style")
+        if not _known(style, options.STYLE_IDS):
+            style = options.DEFAULT_STYLE                      # старые клиенты стиль не присылают, чужое значение — не повод для ошибки
 
         language = data.get("language")
-        if language not in options.LANGUAGES:
+        if not _known(language, options.LANGUAGES):
             raise ValidationError("Выберите язык книги: русский или кыргызский.", field="language")
 
         islamic = _truthy(data.get("islamic"))
@@ -132,7 +174,8 @@ class Profile:
 
         return cls(
             name=name, age=age, gender=gender, hair=hair, eyes=eyes, clothes=clothes,
-            likes=likes, traits=traits, place=place, place_custom=place_custom, value=value,
+            likes=likes, traits=traits, place=place, place_custom=place_custom, topic=topic,
+            topic_custom=topic_custom, request=request, favorites=favorites, world=world, cartoons=cartoons, style=style, value=value,
             islamic=islamic, headscarf=headscarf, language=language, dedication=dedication,
             has_photo=bool(has_photo),
         )
@@ -149,7 +192,8 @@ class Profile:
     def scrubbed(self) -> dict:
         """Копия без личных данных — остаётся после удаления файлов, для статистики."""
         d = self.to_dict()
-        for key in ("name", "hair", "eyes", "clothes", "dedication", "place_custom"):
+        for key in ("name", "hair", "eyes", "clothes", "dedication", "place_custom", "topic_custom", "request",
+                    "favorites", "cartoons"):
             d[key] = ""
         d["likes"] = []
         d["scrubbed"] = True
@@ -170,6 +214,21 @@ class Profile:
             return self.place_custom
         return options.PLACES[self.place]["label"]
 
+    @property
+    def topic_label(self) -> str:
+        """Тема словами: для своей темы — то, что написал человек."""
+        if self.topic == "custom" and self.topic_custom:
+            return self.topic_custom
+        return options.TOPICS.get(self.topic, options.TOPICS[options.DEFAULT_TOPIC])["label"]
+
+    @property
+    def style_label(self) -> str:
+        return options.style_label(self.style)
+
+    @property
+    def world_label(self) -> str:
+        return options.WORLDS[self.world]["label"] if self.world in options.WORLDS else ""
+
     def trait_labels(self) -> list[str]:
         return [options.trait_label(t, self.gender) for t in self.traits]
 
@@ -187,7 +246,24 @@ class Profile:
             "место действия": self.place_label,
             "ценность": self.value_label,
             "язык книги": options.LANGUAGES[self.language]["label"],
+            "topic_label": self.topic_label,
+            "style_label": self.style_label,
         }
+        if self.topic != "custom" and self.topic in options.TOPICS:
+            child["topic_hint"] = options.TOPICS[self.topic]["hint"]
+        if self.request:
+            child["request"] = self.request
+        if self.favorites:
+            child["favorites"] = self.favorites
+        if self.world in options.WORLDS:
+            child["world_label"] = options.WORLDS[self.world]["label"]
+            child["world_hint"] = options.WORLDS[self.world]["hint"]
+            archetype = writer_data.archetype_for_world(self.world, islamic=self.islamic)
+            if archetype is not None:
+                child["archetype"] = archetype.title
+        if self.cartoons:
+            child["cartoons"] = self.cartoons
+            child["cartoons_note"] = CARTOONS_NOTE
         if self.islamic:
             child["исламские ценности"] = True
             if self.gender == "girl":

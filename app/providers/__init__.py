@@ -21,13 +21,18 @@ def make_text_provider(s: Settings) -> TextProvider:
         _need(s.openai_api_key, "OPENAI_API_KEY", "TEXT_PROVIDER", "openai")
         _need(s.openai_text_model, "OPENAI_TEXT_MODEL", "TEXT_PROVIDER", "openai")
         from .text_openai import OpenAITextProvider
-        return OpenAITextProvider(s.openai_api_key, s.openai_base_url, s.openai_text_model,
-                                  proof_model=s.text_proof_model)
+        provider = OpenAITextProvider(s.openai_api_key, s.openai_base_url, s.openai_text_model,
+                                      proof_model=s.text_proof_model)
+        provider.simple_writer = s.writer_mode == "simple"
+        provider.effort = s.openai_text_effort
+        return provider
     if s.text_provider == "gemini":
         _need(s.gemini_api_key, "GEMINI_API_KEY", "TEXT_PROVIDER", "gemini")
         _need(s.gemini_model, "GEMINI_MODEL", "TEXT_PROVIDER", "gemini")
         from .text_gemini import GeminiTextProvider
-        return GeminiTextProvider(s.gemini_api_key, s.gemini_model, proof_model=s.text_proof_model)
+        provider = GeminiTextProvider(s.gemini_api_key, s.gemini_model, proof_model=s.text_proof_model)
+        provider.simple_writer = s.writer_mode == "simple"
+        return provider
     raise ConfigError(f"Неизвестный TEXT_PROVIDER: {s.text_provider}")
 
 

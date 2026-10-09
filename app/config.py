@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 TEXT_PROVIDERS = ("mock", "openai", "gemini")
 IMAGE_PROVIDERS = ("mock", "openai", "cloudflare")
+TEXT_OVERLAY_MODES = ("auto", "fade", "plate", "plain")      # то же, что app.overlay.MODES (здесь без импорта Pillow)
 
 
 class ConfigError(Exception):
@@ -80,6 +81,8 @@ class Settings:
     gemini_api_key: str = ""
     gemini_model: str = ""
     text_proof_model: str = ""          # модель для вычитки кыргызского текста; пусто — основная модель текста
+    writer_mode: str = "simple"         # simple — один запрос писателя (по умолчанию); legacy — старый конвейер из нескольких запросов
+    openai_text_effort: str = "medium"  # режим размышления модели текста (low | medium | high | xhigh); пусто — по умолчанию модели. high на кыргызском не укладывался в таймаут
 
     cloudflare_account_id: str = ""
     cloudflare_api_token: str = ""
@@ -97,6 +100,7 @@ class Settings:
     mock_delay_seconds: float = 1.2
 
     price_text: str = "590 сом"          # цена PDF-книги; владелец меняет её в админке
+    text_overlay_mode: str = "auto"      # оформление текста на картинке: auto | fade | plate | plain (см. app/overlay.py)
 
     @classmethod
     def from_env(cls, env_file: Path | None = ROOT / ".env") -> "Settings":
@@ -133,6 +137,8 @@ class Settings:
             gemini_api_key=_s("GEMINI_API_KEY"),
             gemini_model=_s("GEMINI_MODEL"),
             text_proof_model=_s("TEXT_PROOF_MODEL"),
+            writer_mode=_s("WRITER_MODE", "simple").lower() or "simple",
+            openai_text_effort=_s("OPENAI_TEXT_EFFORT", "medium").lower(),
             cloudflare_account_id=_s("CLOUDFLARE_ACCOUNT_ID"),
             cloudflare_api_token=_s("CLOUDFLARE_API_TOKEN"),
             cloudflare_image_model=_s("CLOUDFLARE_IMAGE_MODEL"),
@@ -145,6 +151,7 @@ class Settings:
             max_parallel_generations=max(1, _int("MAX_PARALLEL_GENERATIONS", 3)),
             image_concurrency=max(1, _int("IMAGE_CONCURRENCY", 3)),
             mock_delay_seconds=max(0.0, _float("MOCK_DELAY_SECONDS", 1.2)),
+            text_overlay_mode=_s("TEXT_OVERLAY_MODE", "auto").lower() or "auto",
         )
         settings.check_provider_names()
         return settings
@@ -160,6 +167,11 @@ class Settings:
             raise ConfigError(
                 f"В .env строка IMAGE_PROVIDER = «{self.image_provider}», "
                 f"а должна быть одна из: {', '.join(IMAGE_PROVIDERS)}."
+            )
+        if self.text_overlay_mode not in TEXT_OVERLAY_MODES:
+            raise ConfigError(
+                f"В .env строка TEXT_OVERLAY_MODE = «{self.text_overlay_mode}», "
+                f"а должна быть одна из: {', '.join(TEXT_OVERLAY_MODES)}."
             )
 
     @property

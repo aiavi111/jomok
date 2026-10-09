@@ -29,12 +29,13 @@ async def main(sample: Path, from_env: bool = False) -> Path:
     except ValidationError as e:
         sys.exit(f"В файле {sample.name} ошибка: {e.message}")
     out_dir = ROOT / "demo_output" / sample.stem
-    stages = {"writing": "Пишу сказку", "drawing": "Рисую иллюстрации", "assembling": "Собираю PDF"}
+    stages = {"writing": "Пишу книгу", "drawing": "Рисую иллюстрации", "assembling": "Собираю PDF"}
 
     async def on_status(status: str) -> None:
         print(f"  • {stages.get(status, status)}…")
 
     text_provider, image_provider, mock = MockTextProvider(), MockImageProvider(), True
+    overlay_mode = "auto"
     suffix = ""
     if from_env:
         try:
@@ -45,16 +46,18 @@ async def main(sample: Path, from_env: bool = False) -> Path:
         except ConfigError as e:
             sys.exit(f"Ошибка настройки: {e}")
         mock = settings.uses_mock
+        overlay_mode = settings.text_overlay_mode
         suffix = f"_{settings.text_provider}_{settings.image_provider}"
         print(f"Собираю книгу из {sample.name}: текст — {settings.text_provider}, картинки — {settings.image_provider}")
     else:
         print(f"Собираю демо-книгу из {sample.name} (заглушки, без сети)")
     try:
-        result = await build_book(profile, text_provider, image_provider, out_dir, mock=mock, on_status=on_status)
+        result = await build_book(profile, text_provider, image_provider, out_dir, mock=mock, overlay_mode=overlay_mode,
+                                  on_status=on_status)
     except ProviderError as e:
         sys.exit(f"Не получилось: {e.message}")
     except StoryError as e:
-        sys.exit(f"Модель не смогла написать сказку: {redact(str(e))}")
+        sys.exit(f"Модель не смогла написать книгу: {redact(str(e))}")
     if result.failed_pages:
         print(f"Внимание: не нарисовались {', '.join(result.failed_pages)} — на их месте заглушки. {result.failure_notes[0]}")
     pdf = ROOT / "demo_output" / f"{sample.stem}{suffix}.pdf"
