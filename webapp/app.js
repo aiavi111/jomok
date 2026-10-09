@@ -392,22 +392,21 @@
   }
 
   /* ===================================================================== приветствие */
-  // Примеры настоящей книги: обложка (квадрат 720×720) и три широкие страницы 2:1 (1200×600)
+  // Фото готовой книги: твёрдая обложка и развороты на столе (портрет 3:4, 720×960)
   const EXAMPLES_LABEL = 'Примеры книги про Артёма и динозаврика';
   const EXAMPLE = [
-    { img: '/static/img/book-cover.jpg', w: 720, h: 720, cover: true, alt: 'Обложка книги «Артём и маленький Топик»: мальчик в синем свитере с рюкзаком и зелёный динозаврик в очках с печеньем в лапках' },
-    { img: '/static/img/book-p2.jpg', w: 1200, h: 600, alt: 'Артём присел у входа в лес рядом с зелёным динозавриком Топиком в очках', text: 'У входа в лес Артём присел рядом с Топиком. — Я помогу найти твою маму, пойдём вместе! Малыш вытер слёзы и кивнул. Теперь ему было не так грустно.' },
-    { img: '/static/img/book-p4.jpg', w: 1200, h: 600, alt: 'Артём и Топик держатся за руки и переходят мелкую горную речку', text: 'У реки Топик робко смотрел на воду. Артём взял его за лапку. — Здесь мелко, я рядом! Они медленно перешли реку и радостно выбрались на другой берег.' },
-    { img: '/static/img/book-p6.jpg', w: 1200, h: 600, alt: 'На вершине на закате Артём обнимает испуганного Топика', text: 'На вершине мамы не было видно, и Топик снова заплакал. Артём обнял его. — Мы её найдём! Он набрал побольше воздуха и громко позвал: «Мама Топика!»' },
+    { img: '/static/img/shot-cover.jpg', w: 720, h: 960, alt: 'Книга «Артём и маленький Топик» с твёрдой обложкой: мальчик с рюкзаком и зелёный динозаврик в очках с печеньем' },
+    { img: '/static/img/shot-p2.jpg', w: 720, h: 960, alt: 'Разворот 2: Артём присел рядом с динозавриком Топиком у входа в лес, слева текст, справа картинка' },
+    { img: '/static/img/shot-p3.jpg', w: 720, h: 960, alt: 'Разворот 3: Артём приподнимает ветку, Топик смеётся, справа текст' },
+    { img: '/static/img/shot-p4.jpg', w: 720, h: 960, alt: 'Разворот 4: Артём и Топик держатся за руки и переходят мелкую речку' },
+    { img: '/static/img/shot-p6.jpg', w: 720, h: 960, alt: 'Разворот 6: на вершине на закате Артём обнимает Топика и зовёт его маму' },
+    { img: '/static/img/shot-p7.jpg', w: 720, h: 960, alt: 'Разворот 7: Артём и Топик обнимаются с мамой-динозавром на цветущем лугу' },
   ];
 
   function exampleRail() {
     const cards = EXAMPLE.map((x, i) => {
-      const first = i === 0;
-      const img = '<img src="' + x.img + '" alt="' + esc(x.alt) + '" width="' + x.w + '" height="' + x.h + '" decoding="async"' + (first ? ' fetchpriority="high"' : ' loading="lazy"') + '>';
-      return x.cover
-        ? '<article class="ex cover-ex" aria-label="Обложка">' + img + '</article>'
-        : '<article class="ex page-ex" aria-label="Страница ' + (i + 1) + '">' + img + '<p>' + esc(x.text) + '</p></article>';
+      const img = '<img src="' + x.img + '" alt="' + esc(x.alt) + '" width="' + x.w + '" height="' + x.h + '" decoding="async"' + (i === 0 ? ' fetchpriority="high"' : ' loading="lazy"') + '>';
+      return '<article class="ex shot" aria-label="' + (i === 0 ? 'Обложка' : 'Разворот книги') + '">' + img + '</article>';
     }).join('');
     const pips = EXAMPLE.map((x, i) => '<button type="button" class="pip" data-act="rail-go" data-i="' + i + '" aria-label="Пример ' + (i + 1) + ' из ' + EXAMPLE.length + '"' + (i === 0 ? ' aria-current="true"' : '') + '></button>').join('');
     return '<div class="showcase"><div class="rail" id="rail" tabindex="0" role="region" aria-roledescription="карусель" aria-label="' + EXAMPLES_LABEL + '">' + cards + '</div>' +
@@ -440,7 +439,7 @@
     const startBtn = (extra) => '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + (extra || '') + '>' + icon('book') + 'Создать книгу</button>';
 
     app.innerHTML = '<section class="screen welcome">' +
-      '<header class="hero"><div class="hero-top"><span class="logo"><span class="logo-mark" aria-hidden="true">' + icon('book') + '</span>Bala story</span>' +
+      '<header class="hero"><div class="hero-top"><span class="logo"><img class="logo-img" src="/static/img/logo.jpg" width="36" height="36" alt="" decoding="async">Bala story</span>' +
       (c.is_admin ? '<button type="button" class="btn ghost small admin-link" data-act="open-admin">' + icon('admin') + 'Админка</button>' : '') + '</div>' +
       '<div class="pills">' + pills.join('') + '</div>' +
       '<h1>Книга, где главный герой — <em>ваш малыш</em></h1>' +

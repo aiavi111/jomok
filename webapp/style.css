@@ -335,6 +335,7 @@ h1.q { margin: 20px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 800;
 .hero { padding: 10px 20px 4px; background: radial-gradient(120% 70% at 50% -10%, #f3f0ff 0%, #fff 62%); }
 .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; }
 .logo { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; font-family: "Comfortaa", var(--sans); font-weight: 700; font-size: 21px; letter-spacing: -.01em; color: var(--fg); }
+.logo-img { display: block; flex: none; width: 36px; height: 36px; border-radius: 50%; background: #1b1456; box-shadow: var(--sh-btn); }
 .logo-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--brand); color: #fff; box-shadow: var(--sh-btn); }
 .logo-mark .ic { width: 22px; height: 22px; }
 .logo-mark .ic .a, .logo-mark .ic .b { fill: rgba(255, 255, 255, .28); }
@@ -361,10 +362,8 @@ h1.q { margin: 20px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 800;
   background: #fff; border-radius: 22px; box-shadow: var(--sh-2); outline: 1px solid rgba(29, 26, 58, .06); outline-offset: -1px;
 }
 .ex img { display: block; width: 100%; height: auto; background: var(--sk1); }
-.ex.cover-ex { width: min(76vw, 300px); align-self: flex-start; }
-.ex.cover-ex img { aspect-ratio: 1 / 1; }
-.ex.page-ex { width: min(84vw, 330px); }
-.ex.page-ex img { aspect-ratio: 2 / 1; object-fit: cover; }
+.ex.shot { width: min(72vw, 280px); }
+.ex.shot img { aspect-ratio: 3 / 4; object-fit: cover; }
 .ex p { padding: 14px 16px 18px; font-size: 15px; line-height: 1.5; font-weight: 500; color: var(--fg); text-wrap: pretty; }
 .cap { padding: 0 20px; text-align: center; color: var(--muted); font-size: 14px; font-weight: 700; }
 .pips { display: flex; justify-content: center; margin-top: 2px; }

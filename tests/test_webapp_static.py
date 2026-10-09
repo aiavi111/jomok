@@ -174,24 +174,26 @@ def test_app_is_always_white_whatever_telegram_theme():
         assert gone not in JS, gone
 
 
-def test_welcome_example_images_are_the_new_book():
+def test_welcome_example_images_are_the_photos_of_the_real_book():
     from PIL import Image
 
     img_dir = WEBAPP / "img"
-    for name, size in (("book-cover.jpg", (720, 720)), ("book-p2.jpg", (1200, 600)), ("book-p4.jpg", (1200, 600)), ("book-p6.jpg", (1200, 600))):
+    for name in ("shot-cover.jpg", "shot-p2.jpg", "shot-p3.jpg", "shot-p4.jpg", "shot-p6.jpg", "shot-p7.jpg"):
         with Image.open(img_dir / name) as pic:
-            assert pic.size == size, name
-    assert not list(img_dir.glob("ex-*.jpg")), "старые примеры (ex-*.jpg) должны быть удалены"
-    assert "ex-cover" not in JS and "ex-p" not in JS
+            assert pic.size == (720, 960), name
+        assert (img_dir / name).stat().st_size < 200_000, name          # лёгкие: грузятся в Telegram по мобильной сети
+    with Image.open(img_dir / "logo.jpg") as logo:
+        assert logo.size[0] == logo.size[1] >= 120
+    assert not list(img_dir.glob("ex-*.jpg")) and not list(img_dir.glob("book-*.jpg")), "старые примеры должны быть удалены"
+    assert "ex-cover" not in JS and "ex-p" not in JS and "book-cover" not in JS
     examples = between(JS, "const EXAMPLE = [", "\n  ];")
-    assert examples.count("img: '/static/img/book-") == 4 and "cover: true" in examples
-    for text in ("У входа в лес Артём присел рядом с Топиком.", "У реки Топик робко смотрел на воду.", "На вершине мамы не было видно"):
-        assert text in examples, text
+    assert examples.count("img: '/static/img/shot-") == 6
     assert "Примеры книги про Артёма и динозаврика" in JS
     rail = between(JS, "function exampleRail()", "function showWelcome()")
     assert "fetchpriority=\"high\"" in rail and "loading=\"lazy\"" in rail and "width=\"' + x.w + '\" height=\"' + x.h" in rail
     assert re.search(r"\.rail \{[^}]*scroll-snap-type: x mandatory", CSS) and ".pip[aria-current=true]" in CSS
-    assert re.search(r"\.ex\.page-ex img \{ aspect-ratio: 2 / 1;", CSS) and re.search(r"\.ex\.cover-ex img \{ aspect-ratio: 1 / 1;", CSS)
+    assert re.search(r"\.ex\.shot img \{ aspect-ratio: 3 / 4;", CSS)
+    assert "/static/img/logo.jpg" in JS and ".logo-img" in CSS         # логотип Bala story в шапке вместо иконки
 
 
 def test_welcome_has_light_hero_with_showcase_and_main_button_before_the_story():
