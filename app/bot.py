@@ -117,7 +117,9 @@ async def _answer_closed(message: Message, service) -> None:
 def build_router() -> Router:
     router = Router()
 
-    @router.message(CommandStart())
+    private = F.chat.type == "private"       # в группах (чат заказов) бот отвечает только на /id: остальное там не для клиентов
+
+    @router.message(CommandStart(), private)
     async def on_start(message: Message, command: CommandObject, webapp_url: str, runtime: "BotRuntime") -> None:
         service = runtime.service
         if service is None:
@@ -150,13 +152,20 @@ def build_router() -> Router:
 
     @router.message(Command("id"))
     async def on_id(message: Message) -> None:
+        if message.chat.type != "private":
+            await message.answer(
+                f"🆔 ID этого чата: <code>{message.chat.id}</code>\n\n"
+                "Если это чат для заказов, впишите это число (вместе с минусом) в Railway → Variables → ORDERS_CHAT_ID — "
+                "и карточки новых заказов будут приходить сюда 🧾"
+            )
+            return
         await message.answer(
             f"🆔 Ваш ID: <code>{message.chat.id}</code>\n\n"
             "Если вы владелец бота, впишите это число в строку ADMIN_CHAT_ID в файле .env — "
             "и копии книг и отзывы будут приходить сюда 💌"
         )
 
-    @router.message(Command("admin"))
+    @router.message(Command("admin"), private)
     async def on_admin(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
         if runtime.settings.admin_chat_id is None or message.chat.id != runtime.settings.admin_chat_id:
             await message.answer("Эта команда только для владельца бота.")
@@ -201,7 +210,7 @@ def build_router() -> Router:
         except TelegramAPIError:
             pass
 
-    @router.message(Command("help"))
+    @router.message(Command("help"), private)
     async def on_help(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
         service = runtime.service
         if service is None:
@@ -211,7 +220,7 @@ def build_router() -> Router:
         else:
             await message.answer(HELP, reply_markup=webapp_keyboard(webapp_url))
 
-    @router.message()
+    @router.message(private)
     async def on_other(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
         service = runtime.service
         if service is None:

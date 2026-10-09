@@ -51,11 +51,11 @@ def make_bot(session: FakeSession) -> Bot:
     return Bot(token=BOT_TOKEN, session=session)
 
 
-def command_update(bot: Bot, text: str, chat_id: int = 555) -> Update:
+def command_update(bot: Bot, text: str, chat_id: int = 555, chat_type: str = "private") -> Update:
     """Собираем обновление из словаря, как его присылает Telegram (так вложенные объекты привязываются к боту)."""
     message = {
         "message_id": 1, "date": int(datetime.now().timestamp()),
-        "chat": {"id": chat_id, "type": "private"},
+        "chat": {"id": chat_id, "type": chat_type},
         "from": {"id": chat_id, "is_bot": False, "first_name": "Мама"},
         "text": text,
     }
@@ -382,3 +382,23 @@ async def test_print_offer_has_whatsapp_url_button_only_when_link_is_given():
 async def test_print_offer_failure_never_raises():
     session = FakeSession(raise_on={SendMessage: TelegramForbiddenError})
     await TelegramNotifier(make_bot(session), admin_chat_id=777).send_print_offer(42, "текст", "https://wa.me/1")
+
+
+GROUP_ID = -1001234567890
+
+
+async def test_id_in_a_group_gives_the_number_for_the_orders_chat(service):
+    session = FakeSession()
+    bot = make_bot(session)
+    await make_dp(WEBAPP, service).feed_update(bot, command_update(bot, "/id", chat_id=GROUP_ID, chat_type="supergroup"))
+    (message,) = sent_messages(session)
+    assert f"<code>{GROUP_ID}</code>" in message.text and "ORDERS_CHAT_ID" in message.text and "ADMIN_CHAT_ID" not in message.text
+
+
+@pytest.mark.parametrize("text", ["/start", "/help", "/admin", "привет всем", "/start@bala_story_bot"])
+async def test_bot_is_silent_in_groups_except_for_id(text, service):
+    """Бот-админ группы видит все сообщения; кнопку Mini App в группе Telegram не принимает (BUTTON_TYPE_INVALID)."""
+    session = FakeSession()
+    bot = make_bot(session)
+    await make_dp(WEBAPP, service).feed_update(bot, command_update(bot, text, chat_id=GROUP_ID, chat_type="supergroup"))
+    assert sent_messages(session) == []
