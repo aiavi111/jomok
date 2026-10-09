@@ -164,7 +164,7 @@ async def test_provider_accepts_story_with_trailing_garbage_without_retry(profil
 async def test_system_prompt_demands_a_real_story_with_meaning(profile):
     from app.prompts import build_system_prompt
     system = build_system_prompt(profile)
-    for phrase in ("настоящая история, а не набор слов", "цель", "препятствие", "делает выбор", "последствия",
-                   "интересной", "Поучительный смысл", "Без нравоучений на страницах"):
+    for phrase in ("поле idea", "цель героя", "препятствие", "неожиданный поворот", "последствия",
+                   "смешной привычкой", "Прямая речь", "Страницы без нравоучений", "не штамп"):
         assert phrase in system, phrase
     assert system.index("Качество сказки") < system.index("Схема JSON")
