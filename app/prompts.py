@@ -72,8 +72,8 @@ PHOTO_INSTRUCTION = ("Draw the child from the reference photo as the hero of thi
                      "photo's pose, background or clothes: the hero is active and in motion, not sitting at a desk.")
 MODEST = "All characters wear modest clothing that fully covers arms and legs."
 # Юридическое правило для всех картинок: чужих персонажей не рисуем, берём собирательный образ.
-LEGAL_CLAUSE = ("Never draw existing trademarked or copyrighted characters; if the story mentions a famous type of "
-                "character, draw an original look-alike archetype.")
+LEGAL_CLAUSE = ("Never draw existing trademarked or copyrighted characters or real celebrities; if the "
+                "story mentions a famous type of character, draw an original look-alike archetype.")
 MAX_PROMPT = 2000  # FLUX принимает до 2048 символов; всё, что нельзя резать (разметка кадра, юридическое правило, стиль), входит сюда
 NOTE_MAX = 240     # палитра книги (style_note режиссёра): ей оставляется место всегда, её держат все страницы и обложка
 COVER_WORLD_MAX = 170   # сколько знаков первой сцены идёт на обложку как «мир за героем»

@@ -64,8 +64,8 @@ def test_cover_prompts_do_not_ask_for_a_wide_spread(story, profile):
 
 
 # ----------------------------------------------------------------------------- правило про чужих персонажей
-LEGAL = ("Never draw existing trademarked or copyrighted characters; if the story mentions a famous type of character, "
-         "draw an original look-alike archetype.")
+LEGAL = ("Never draw existing trademarked or copyrighted characters or real celebrities; if the story mentions a famous "
+         "type of character, draw an original look-alike archetype.")
 
 
 def test_legal_rule_is_in_every_image_prompt(story, profile):
