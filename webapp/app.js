@@ -422,8 +422,6 @@
     const c = S.cfg;
     const left = c.limits.remaining_today;
     const pills = [];
-    if (c.dev_mode) pills.push('<span class="pill dev">Режим разработчика</span>');
-    if (c.mock) pills.push('<span class="pill">Тестовая сборка: картинки-заглушки</span>');
     const second = c.mock ? 'В тестовом режиме — быстрее минуты' : 'Обычно 5–15 минут, приложение можно закрыть';
     const notice = c.privacy_warning
       ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(c.privacy_warning) + '</span></div>' : '';
@@ -433,14 +431,14 @@
     const priceLine = closedMode
       ? 'Цена книги <b>' + esc(c.price_text) + '</b>. Ссылка на доступ приходит после оплаты.'
       : c.free_in_test
-      ? 'Книга стоит <b>' + esc(c.price_text) + '</b>. Сейчас тест — <b>бесплатно</b>. Осталось ' + left + ' из ' + c.limits.books_per_day + ' на сегодня.'
+      ? 'Цена книги — <b>' + esc(c.price_text) + '</b>.'
       : 'Цена книги — <b>' + esc(c.price_text) + '</b>. Оплата переводом по QR-коду.';
     const perk = (name, b, d) => '<li><span class="e" aria-hidden="true">' + icon(name) + '</span><div><b>' + b + '</b><span class="d">' + d + '</span></div></li>';
     const startBtn = (extra) => '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + (extra || '') + '>' + icon('book') + 'Создать книгу</button>';
 
     app.innerHTML = '<section class="screen welcome">' +
       '<header class="hero"><div class="hero-top"><span class="logo"><img class="logo-img" src="/static/img/logo.jpg" width="36" height="36" alt="" decoding="async">Bala story</span>' +
-      (c.is_admin ? '<button type="button" class="btn ghost small admin-link" data-act="open-admin">' + icon('admin') + 'Админка</button>' : '') + '</div>' +
+      '</div>' +
       '<div class="pills">' + pills.join('') + '</div>' +
       '<h1>Книга, где главный герой — <em>ваш малыш</em></h1>' +
       '<p class="lead">Придумаем добрую историю, нарисуем страницы и пришлём PDF-книгу прямо в чат.</p>' +
@@ -790,7 +788,7 @@
     const acc = S.cfg.access;
     const cost = acc && acc.closed && !isAdmin() && typeof acc.credits === 'number'
       ? 'Будет использована 1 книга по вашей ссылке (доступно: ' + acc.credits + '). '
-      : (S.cfg.free_in_test ? 'Сейчас тест: книга бесплатна (осталось ' + left + ' из ' + S.cfg.limits.books_per_day + ' на сегодня). ' : 'Цена: ' + esc(S.cfg.price_text) + '. ');
+      : 'Цена: ' + esc(S.cfg.price_text) + '. ';
     return warn + promise + '<ul class="summary">' + rows.filter((r) => S.steps.includes(r[0])).map((r) => {
       return '<li><span class="e" aria-hidden="true">' + icon(iconOf(STEP_ICON, r[0])) + '</span><span class="k">' + r[1] + '</span><span class="v' + (r[1] === 'Пожелания' || r[1] === 'Любимые мультики' ? ' clamp' : '') + '">' + esc(r[2]) + '</span>' +
         '<button type="button" class="edit" data-act="edit" data-step="' + r[0] + '" aria-label="Изменить: ' + r[1] + '">Изменить</button></li>';
