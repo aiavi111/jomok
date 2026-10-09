@@ -165,6 +165,6 @@ async def test_system_prompt_demands_a_real_story_with_meaning(profile):
     from app.prompts import build_system_prompt
     system = build_system_prompt(profile)
     for phrase in ("поле idea", "цель героя", "препятствие", "неожиданный поворот", "последствия",
-                   "смешной привычкой", "Прямая речь", "Страницы без нравоучений", "не штамп", "В текстах страниц их не описывай"):
+                   "смешной привычкой", "Прямая речь", "Страницы без нравоучений", "не штамп", "В текстах страниц их не описывай", "Имя героя не повторяй"):
         assert phrase in system, phrase
     assert system.index("Качество сказки") < system.index("Схема JSON")
