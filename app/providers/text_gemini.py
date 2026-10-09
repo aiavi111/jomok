@@ -69,6 +69,7 @@ def explain_error(resp: httpx.Response, model: str) -> ProviderError:
 
 
 class GeminiTextProvider(TextProvider):
+    polish = True
     name = "gemini"
 
     def __init__(self, api_key: str, model: str, *, transport: httpx.AsyncBaseTransport | None = None):

@@ -173,6 +173,7 @@ async def test_openai_rate_limit_is_retried(profile):
     server = Recorder(jr(429, {"error": {"message": "Rate limit reached", "code": "rate_limit_exceeded"}},
                          headers={"Retry-After": "1"}), chat_reply(json.dumps(good_story(), ensure_ascii=False)))
     provider = OpenAITextProvider(OPENAI_KEY, "https://api.openai.test/v1", "m", transport=server.transport)
+    provider.polish = False
     assert (await provider.generate_story(profile)).title and len(server.requests) == 2
 
 
@@ -299,7 +300,9 @@ async def test_gemini_429_with_short_retry_delay_is_retried_and_503_too(profile,
                                  "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "4s"}]}})
     server = Recorder(limited, jr(503, {"error": {"message": "overloaded"}}),
                       gemini_reply(json.dumps(good_story(), ensure_ascii=False)))
-    await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
+    provider = GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport)
+    provider.polish = False
+    await provider.generate_story(profile)
     assert len(server.requests) == 3 and no_real_sleep[0] == 4.0
 
 
@@ -386,3 +389,46 @@ def test_missing_setting_gives_clear_russian_message(tmp_path, over, var):
     with pytest.raises(ConfigError) as err:
         make_text_provider(s) if "text_provider" in over else make_image_provider(s)
     assert var in str(err.value)
+
+
+# ----------------------------------------------------------------------- проход «редактор»
+def _edited(story: dict, suffix: str = " Бряк!") -> str:
+    return json.dumps({"title": "Новое название", "pages": [{"text": p["text"] + suffix} for p in story["pages"]],
+                       "moral": "Живая мысль этой истории.", "wish": "Айдар, пусть тебе всегда везёт!"},
+                      ensure_ascii=False)
+
+
+async def test_editor_pass_rewrites_text_but_keeps_pictures_data(profile):
+    story = good_story()
+    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(_edited(story)))
+    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
+    assert len(server.requests) == 2
+    assert result.title == "Новое название" and result.moral == "Живая мысль этой истории."
+    assert all(p.text.endswith("Бряк!") for p in result.pages)
+    assert [p.scene for p in result.pages] == [p["scene"] for p in story["pages"]]
+    assert result.hero_visual == story["hero_visual"]
+    sent = server.requests[1].content.decode()
+    assert "<draft>" in sent and "scene" not in sent and "hero_visual" not in sent    # редактор не видит описаний для художника
+
+
+@pytest.mark.parametrize("bad", ['{"pages": []}', "это не JSON", '{"title": "x", "pages": [{"text": "коротко"}]}'])
+async def test_editor_failure_keeps_draft(profile, bad):
+    story = good_story()
+    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(bad))
+    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
+    assert result.title == story["title"] and result.pages[0].text == story["pages"][0]["text"]
+
+
+async def test_editor_provider_error_keeps_draft(profile, no_real_sleep):
+    story = good_story()
+    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), jr(400, {"error": {"message": "bad"}}))
+    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
+    assert result.title == story["title"]
+
+
+async def test_editor_shortened_pages_are_rejected(profile):
+    story = good_story()
+    short = json.dumps({"title": "T", "pages": [{"text": "Ок."} for _ in story["pages"]], "moral": "м", "wish": "п"}, ensure_ascii=False)
+    server = Recorder(gemini_reply(json.dumps(story, ensure_ascii=False)), gemini_reply(short))
+    result = await GeminiTextProvider(GEMINI_KEY, "m", transport=server.transport).generate_story(profile)
+    assert result.title == story["title"]

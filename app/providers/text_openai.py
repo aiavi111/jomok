@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 
 class OpenAITextProvider(TextProvider):
+    polish = True
     name = "openai"
 
     def __init__(self, api_key: str, base_url: str, model: str, *, transport: httpx.AsyncBaseTransport | None = None):

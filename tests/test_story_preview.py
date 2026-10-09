@@ -45,7 +45,7 @@ def test_preview_with_gemini_uses_provider_and_warns_about_free_tier(tmp_path, m
     assert run(story_preview.preview(settings, SAMPLE, out=out)) == 0
     text = "\n".join(lines)
     assert "бесплатный тариф Gemini" in text and "вымышленные" in text and GEMINI_KEY not in text
-    assert len(server.requests) == 1
+    assert len(server.requests) == 2          # сказка и проход редактора
 
 
 def test_preview_explains_wrong_key_without_traceback_or_key(tmp_path, monkeypatch):

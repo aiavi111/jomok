@@ -69,7 +69,7 @@ async def test_whole_order_over_real_http_without_photo(tmp_path):
         order = await e.wait_done(await e.create())
         assert order["status"] == "done" and order["pdf_url"] and len(order["pages"]) == 8
         kinds = [(path, body.get("model")) for kind, body, path in fake.calls]
-        assert kinds.count(("/v1/chat/completions", "text-model-from-env")) == 1
+        assert kinds.count(("/v1/chat/completions", "text-model-from-env")) == 2   # сказка и проход редактора
         assert kinds.count(("/v1/images/generations", "image-model-from-env")) == 1       # обложка без референсов
         assert kinds.count(("/v1/images/edits", "image-model-from-env")) == 8             # страницы: референс — обложка
         edits = [body for _, body, path in fake.calls if path.endswith("/edits")]
