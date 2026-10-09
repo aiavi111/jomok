@@ -396,6 +396,78 @@
       valid: () => !S.photo || S.a.photo_consent,
       mount() { if (S.cfg.photo_supported) refreshPhoto(); else focusField(null, 'input'); },
     },
+    likes: {
+      title: () => 'Что любит ' + nameShown() + '?',
+      hint: () => 'Выберите до 3 любимых занятий — они станут суперсилой героя 💪',
+      body: () => '<div class="chips-meta" id="m-likes"></div><div class="chips" id="chips-likes"></div>' +
+        '<div class="add-row"><input class="input" id="in-like" maxlength="40" autocomplete="off" enterkeyhint="done" placeholder="Своё увлечение" aria-label="Своё увлечение"><button type="button" class="btn secondary small" data-act="like-add" id="b-like" disabled>' + icon('plus') + 'Добавить</button></div>',
+      valid: () => S.a.likes.length >= 1,
+      mount() { refreshChips('likes'); },
+    },
+    traits: {
+      title: () => 'Какой у героя характер?',
+      hint: () => 'Выберите до 3 черт — именно с ними герой справится с трудностями.',
+      body: () => '<div class="chips-meta" id="m-traits"></div><div class="chips" id="chips-traits"></div>',
+      valid: () => S.a.traits.length >= 1,
+      mount() { refreshChips('traits'); },
+    },
+    place: {
+      title: () => 'Где случится приключение?',
+      hint: () => 'Это место появится на всех картинках — выбирайте самое любимое.',
+      auto: true,
+      body: () => '<div class="opts" role="radiogroup" aria-label="Место действия">' +
+        choiceButtons('place', opts().places.map((p) => {
+          const m = PLACE_META[p.id] || PLACE_META.custom;
+          return { id: p.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(p.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
+        }), 'opt') + '</div><div id="custom-place"></div>',
+      valid: () => !!S.a.place && (S.a.place !== 'custom' || S.a.place_custom.trim().length > 0),
+      mount() { refreshCustomPlace(false); },
+    },
+    value: {
+      title: () => 'О чём будет сказка?',
+      hint: () => 'Герой не станет читать нотации — он покажет это своим поступком.',
+      auto: true,
+      body: () => '<div class="opts" role="radiogroup" aria-label="Ценность">' +
+        choiceButtons('value', opts().values.map((v) => {
+          const m = VALUE_META[v.id] || VALUE_META.kindness;
+          return { id: v.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(v.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
+        }), 'opt') + '</div>',
+      valid: () => !!S.a.value,
+    },
+    islamic: {
+      title: () => 'Добавим исламские ценности?',
+      hint: () => 'Это по желанию — можно просто нажать «Дальше».',
+      body: () => {
+        const girl = S.a.gender === 'girl';
+        return '<div class="switch-row"><div class="t"><b id="sw-i">🌙 Исламские ценности</b><p>Скромная одежда героев на картинках, редкие слова «Бисмиллях» и «Альхамдулиллях», никакой магии и волшебных существ.</p></div>' +
+          '<button type="button" class="switch" role="switch" aria-checked="' + S.a.islamic + '" aria-labelledby="sw-i" data-act="switch" data-field="islamic"></button></div>' +
+          (S.a.islamic && girl ? '<div class="switch-row"><div class="t"><b id="sw-h">🧕 Героиня в платке</b><p>Необязательно: на картинках героиня будет в платке.</p></div>' +
+            '<button type="button" class="switch" role="switch" aria-checked="' + S.a.headscarf + '" aria-labelledby="sw-h" data-act="switch" data-field="headscarf"></button></div>' : '');
+      },
+      valid: () => true,
+    },
+    language: {
+      title: () => 'На каком языке читаем?',
+      hint: () => 'Весь текст книги будет на выбранном языке.',
+      auto: true,
+      body: () => '<div class="tiles" role="radiogroup" aria-label="Язык книги">' +
+        choiceButtons('language', [
+          { id: 'ru', html: '<span class="big em" aria-hidden="true">📗</span><b>Русский</b><small>Сказка на русском</small>' },
+          { id: 'ky', html: '<span class="big em" aria-hidden="true">📘</span><b>Кыргызча</b><small>Жомок кыргызча</small>' },
+        ], 'tile') + '</div>' +
+        '<p class="sum-note">Кыргызский текст пишет нейросеть, и пока в нём возможны неточности — его обязательно вычитывает носитель языка 🙏</p>',
+      valid: () => !!S.a.language,
+    },
+    dedication: {
+      optional: true,
+      title: () => 'Что напишем на странице посвящения?',
+      hint: () => 'Страница будет называться «Для ' + nameShown() + '», а под ней — ваши тёплые слова.',
+      body: () => '<label class="field"><span class="lbl" id="l-ded">Посвящение</span><textarea class="textarea" id="in-ded" data-field="dedication" maxlength="120" rows="4" aria-labelledby="l-ded" aria-describedby="c-ded" placeholder="Например: Любимому сыну от мамы и папы 💛">' + esc(S.a.dedication) + '</textarea></label>' +
+        '<div class="counter" id="c-ded">' + S.a.dedication.length + '/120</div>',
+      isEmpty: () => !S.a.dedication.trim(),
+      valid: () => true,
+      mount() { focusField('in-ded'); },
+    },
     summary: {
       title: () => 'Всё готово к созданию! 🎉',
       hint: () => 'Проверьте ответы — любой можно поправить.',
