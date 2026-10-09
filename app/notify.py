@@ -6,6 +6,7 @@
 Дополнительные методы необязательны, сервис вызывает их через getattr и без них просто пропускает шаг:
   notify_payment(order_id, receipt_path, text) — чек владельцу с кнопками;
   notify_user(user_id, text)                   — сообщение человеку;
+  notify_order(text)                           — карточка заказа (новый, готов) в чат заказов (ORDERS_CHAT_ID, иначе владельцу);
   send_print_offer(user_id, text, whatsapp_url) — предложение печатной версии после книги (кнопка «Заказать в WhatsApp»).
 """
 from __future__ import annotations
@@ -40,6 +41,9 @@ class NullNotifier:
 
     async def notify_admin(self, text: str) -> None:
         log.info("Сообщение администратору (бот не подключён): %s", text)
+
+    async def notify_order(self, text: str) -> None:
+        log.info("Карточка заказа (бот не подключён): %s", text[:200])
 
     async def send_print_offer(self, user_id, text, whatsapp_url) -> None:
         return None

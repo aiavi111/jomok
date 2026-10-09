@@ -316,9 +316,37 @@ class OrderService:
             raise self.closed_error()
         if not needs_payment:
             self._start(order_id)
+        await self._order_card(self._new_order_text(order_id, user, profile, has_photo, use_credit, needs_payment))
         log.info("Заказ %s создан (возраст %s, язык %s, место %s, ценность %s, фото %s, оплата нужна: %s)",
                  order_id, profile.age, profile.language, profile.place, profile.value, has_photo, needs_payment)
         return order_id
+
+    def _new_order_text(self, order_id: str, user: TgUser, profile: Profile, has_photo: bool, use_credit: bool,
+                        needs_payment: bool) -> str:
+        """Карточка нового заказа для владельца: кто заказал и что (без лишних данных ребёнка)."""
+        who = self.db.get_user(user.id)
+        name = (who["first_name"] if who and who["first_name"] else user.first_name or "Без имени")
+        username = (who["username"] if who and who["username"] else getattr(user, "username", None))
+        gender = "девочка" if profile.gender == "girl" else "мальчик"
+        lines = [f"🧾 Новый заказ {order_id}",
+                 f"От: {name}" + (f" (@{username})" if username else "") + f", id {user.id}",
+                 f"Герой: {profile.name}, {profile.age} {ru_plural(profile.age, 'год', 'года', 'лет')}, {gender}",
+                 f"Тема: {profile.topic_label}" + (f" · мир: {profile.world_label}" if profile.world_label else ""),
+                 f"Стиль: {profile.style_label} · язык: {'кыргызский' if profile.language == 'ky' else 'русский'}"
+                 f" · фото: {'есть' if has_photo else 'нет'}" + (" · исламский режим" if profile.islamic else "")]
+        if needs_payment:
+            lines.append("Ждёт оплаты и подтверждения чека")
+        elif use_credit:
+            lines.append(f"Осталось книг у клиента: {self.db.get_credits(user.id)}")
+        return "\n".join(lines)
+
+    async def _order_card(self, text: str) -> None:
+        """Карточка заказа в чат заказов; сбой отправки заказ не ломает."""
+        notify = getattr(self.notifier, "notify_order", None) or self.notifier.notify_admin
+        try:
+            await notify(text)
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось отправить карточку заказа")
 
     def _start(self, order_id: str) -> None:
         task = asyncio.create_task(self._run(order_id), name=f"order-{order_id}")
@@ -495,7 +523,9 @@ class OrderService:
             await self.notifier.notify_admin(
                 f"Заказ {order_id}: не нарисовались {len(result.failed_pages)} из {PAGES + 1} иллюстраций "
                 f"({', '.join(result.failed_pages)}). Вместо них — заглушки. " + "; ".join(result.failure_notes[:3]))
-        await self._deliver(order_id, user_id, result.story, result.pdf_path)
+        delivered = await self._deliver(order_id, user_id, result.story, result.pdf_path)
+        await self._order_card(f"✅ Заказ {order_id} готов: «{result.story.title}». "
+                               + ("Книга отправлена клиенту в чат." if delivered else "В чат отправить не вышло: книга ждёт клиента в приложении."))
 
     async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True) -> bool:
         filename = safe_filename(story.title)

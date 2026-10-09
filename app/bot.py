@@ -228,9 +228,10 @@ def build_router() -> Router:
 class TelegramNotifier:
     """Отправка книг и сообщений через Bot API."""
 
-    def __init__(self, bot: Bot, admin_chat_id: int | None, webapp_url: str = ""):
+    def __init__(self, bot: Bot, admin_chat_id: int | None, webapp_url: str = "", orders_chat_id: int | None = None):
         self.bot = bot
         self.admin_chat_id = admin_chat_id
+        self.orders_chat_id = orders_chat_id if orders_chat_id is not None else admin_chat_id
         self.webapp_url = webapp_url
 
     async def notify_payment(self, order_id: str, receipt_path: Path, text: str) -> None:
@@ -295,6 +296,16 @@ class TelegramNotifier:
         except Exception as e:  # noqa: BLE001
             log.warning("Копия книги администратору не отправлена: %s", type(e).__name__)
 
+    async def notify_order(self, text: str) -> None:
+        """Карточка заказа в чат заказов (ORDERS_CHAT_ID, может быть группой); не задан — в чат владельца."""
+        if self.orders_chat_id is None:
+            log.info("Чат заказов не задан, карточка не отправлена: %s", text[:200])
+            return
+        try:
+            await self.bot.send_message(self.orders_chat_id, html.escape(text)[:4000], parse_mode=None)
+        except Exception as e:  # noqa: BLE001 — карточка не критична: заказ уже принят
+            log.warning("Карточка заказа не отправлена: %s", type(e).__name__)
+
     async def notify_admin(self, text: str) -> None:
         if self.admin_chat_id is None:
             log.info("ADMIN_CHAT_ID не задан, сообщение администратору не отправлено: %s", text[:200])
@@ -313,7 +324,7 @@ class BotRuntime:
         self.bot_info = bot_info
         self.bot = bot or Bot(token=settings.telegram_bot_token,
                               default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-        self.notifier = TelegramNotifier(self.bot, settings.admin_chat_id, settings.webapp_url)
+        self.notifier = TelegramNotifier(self.bot, settings.admin_chat_id, settings.webapp_url, settings.orders_chat_id)
         self.service = None                  # сервис заказов подключается в main.py
         self.dp = Dispatcher()
         self.dp.include_router(build_router())

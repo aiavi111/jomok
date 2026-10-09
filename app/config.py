@@ -68,6 +68,7 @@ class Settings:
     telegram_bot_token: str = ""
     webapp_url: str = ""
     admin_chat_id: int | None = None
+    orders_chat_id: int | None = None   # куда приходят карточки заказов (новый, готов); пусто — в чат владельца ADMIN_CHAT_ID
 
     text_provider: str = "mock"
     image_provider: str = "mock"
@@ -119,6 +120,17 @@ class Settings:
                     "Отправьте боту команду /id — он ответит нужным числом."
                 )
 
+        orders_raw = _s("ORDERS_CHAT_ID")
+        orders_id: int | None = None
+        if orders_raw:
+            try:
+                orders_id = int(orders_raw)
+            except ValueError:
+                raise ConfigError(
+                    "В .env строка ORDERS_CHAT_ID должна быть числом (id чата или группы, у групп он отрицательный). "
+                    "Бот отвечает на команду /id числом чата, где её написали."
+                )
+
         data_dir = Path(_s("DATA_DIR", "data"))
         if not data_dir.is_absolute():
             data_dir = ROOT / data_dir
@@ -127,6 +139,7 @@ class Settings:
             telegram_bot_token=_s("TELEGRAM_BOT_TOKEN"),
             webapp_url=_webapp_url(),
             admin_chat_id=admin_id,
+            orders_chat_id=orders_id,
             text_provider=_s("TEXT_PROVIDER", "mock").lower() or "mock",
             image_provider=_s("IMAGE_PROVIDER", "mock").lower() or "mock",
             openai_api_key=_s("OPENAI_API_KEY"),
