@@ -32,7 +32,7 @@ def test_miniapp_says_book_not_tale():
     for name, text in (("app.js", JS), ("style.css", CSS), ("index.html", HTML)):
         found = tale.search(text)
         assert not found, f"в {name} осталось слово «{text[found.start():found.start() + 12]}»"
-    for phrase in ("Книга, где главный герой — ваш малыш", "✨ Создать книгу", "Ура! Книга готова", "Пишем вашу книгу",
+    for phrase in ("Книга, где главный герой — <em>ваш малыш</em>", "Создать книгу", "Ура! Книга готова", "Пишем вашу книгу",
                    "Ой, книга не получилась", "Книга для "):
         assert phrase in JS, phrase
     assert "Персональная книга" in HTML
@@ -47,12 +47,12 @@ def test_questionnaire_has_topic_and_extras_steps_after_value():
         assert re.search(rf"^    {name}: \{{", JS, re.MULTILINE), f"нет шага {name}"
 
 
-def test_topic_step_uses_server_topics_with_emoji_and_custom_input():
+def test_topic_step_uses_server_topics_with_icons_and_custom_input():
     assert "topicList()" in JS and "options.topics" in JS and "default_topic" in JS
-    for topic, emoji in (("adventure", "🧭"), ("dinosaurs", "🦖"), ("space", "🚀"), ("animals", "🐻"), ("superheroes", "🦸"),
-                         ("pirates", "🏴‍☠️"), ("sea", "🌊"), ("friends", "🤝"), ("kindness", "💛"), ("life_lesson", "🪥"),
-                         ("custom", "✏️")):
-        assert re.search(rf"{topic}: \{{ e: '{re.escape(emoji)}'", JS), topic
+    for topic, icon in (("adventure", "compass"), ("dinosaurs", "dino"), ("space", "rocket"), ("animals", "fox"), ("superheroes", "hero"),
+                        ("pirates", "chest"), ("sea", "boat"), ("friends", "friends"), ("kindness", "heart"), ("life_lesson", "tooth"),
+                        ("custom", "pencil")):
+        assert re.search(rf"{topic}: '{icon}'", between(JS, "const TOPIC_ICON", "\n")), topic
     assert "Какую книгу хотите?" in JS and "field: 'topic_custom'" in JS and "Например: строим снежную крепость" in JS
 
 
@@ -97,7 +97,7 @@ def test_old_ids_and_actions_still_exist():
     for act in ("start", "next", "back", "pick", "toggle", "edit", "download", "resend", "pager-prev", "pager-next", "fb-send",
                 "again", "print-order", "wa-open", "inv-create", "approve", "settings-save", "qr-zoom", "zoom-img"):
         assert re.search(rf"(?:^|\s)'?{re.escape(act)}'?\s*[:,]", between(JS, "const ACTIONS = {", "function syncFeedback")), act
-    assert "__V__" in HTML and "query.get('admin') === '1'" in JS and "DEBUG_THEMES" in JS
+    assert "__V__" in HTML and "query.get('admin') === '1'" in JS
 
 
 def test_style_step_sits_between_world_and_extras_and_is_optional_for_old_server():
@@ -109,8 +109,9 @@ def test_style_step_sits_between_world_and_extras_and_is_optional_for_old_server
     step = between(JS, "    style: {", "    extras: {")
     assert "optional" not in step and "auto: true" in step                    # шаг обязательный
     assert "valid: () => !!stylePicked()" in step
-    for style in ("cartoon3d", "flat2d", "realistic"):
-        assert f"{style}: {{ e:" in JS and f".sty-{style}" in CSS, style
+    for style, icon in (("cartoon3d", "cube"), ("flat2d", "shapes"), ("realistic", "lens")):
+        assert f"{style}: '{icon}'" in between(JS, "const STYLE_ICON", "\n"), style
+    assert ".opt.style-opt" in CSS                                             # крупные карточки стилей
 
 
 def test_style_is_preselected_cannot_be_unpicked_and_goes_into_order():
@@ -121,3 +122,87 @@ def test_style_is_preselected_cannot_be_unpicked_and_goes_into_order():
     assert "if (styleList().length) body.style" in body                        # поле не шлём, если сервер не прислал стили
     assert "style: 'style'" in between(JS, "const STEP_BY_FIELD", "\n")
     assert "['style', 'Стиль'," in between(JS, "function summaryHtml()", "/* --- чипы --- */")
+
+
+# ---------------------------------------------------------------- белый стиль, иконки, примеры книги
+
+EMOJI = re.compile("[\u2600-\u27bf\u2b00-\u2bff\U0001F000-\U0001FFFF\u200d\ufe0f]")
+
+
+def icon_names() -> set[str]:
+    block = between(JS, "  const ICONS = {", "  function icon(")
+    return set(re.findall(r"^    (\w+): '", block, re.MULTILINE))
+
+
+def test_webapp_has_no_emoji_icons():
+    for name, text in (("app.js", JS), ("style.css", CSS), ("index.html", HTML)):
+        found = EMOJI.search(text)
+        assert not found, f"в {name} остался эмодзи {text[found.start():found.start() + 2]!r}: иконки рисуем в ICONS"
+    assert "emoji" not in JS.lower()                    # поле emoji с сервера клиент не использует
+
+
+def test_every_used_icon_is_drawn_and_server_ids_have_icons():
+    from app import options
+
+    names = icon_names()
+    assert {"back", "next", "arrow", "camera", "image", "trash", "download", "send", "share", "admin", "lock", "clock", "done", "error",
+            "warn", "qr", "receipt", "link", "generic"} <= names
+    used = set(re.findall(r"(?:icon\(|icon: |perk\(|stateScreen\()'(\w+)'", JS))
+    mapped = set()
+    for table in ("const TOPIC_ICON", "const WORLD_ICON", "const STYLE_ICON", "const LIKE_ICON", "const TRAIT_ICON"):
+        mapped |= set(re.findall(r": '(\w+)'", between(JS, table, "\n")))
+    mapped |= set(re.findall(r": '(\w+)'", between(JS, "const STEP_ICON", "};")))
+    mapped |= set(re.findall(r"\bi: '(\w+)'", JS))
+    assert used and mapped and (used | mapped) - names == set(), f"нет рисунка для: {sorted((used | mapped) - names)}"
+    for ids, table in ((options.PLACES, "const PLACE_META"), (options.VALUES, "const VALUE_META"), (options.TOPICS, "const TOPIC_ICON"),
+                       (options.WORLDS, "const WORLD_ICON"), (options.TRAITS, "const TRAIT_ICON")):
+        block = between(JS, table, "\n  };") if table.endswith("META") else between(JS, table, "\n")
+        for key in ids:
+            assert re.search(rf"\b{key}: ", block), f"{table}: нет {key}"
+    assert all(f"'{like}':" in between(JS, "const LIKE_ICON", "\n") for like in options.LIKES)
+    assert all(f"{item['id']}: " in between(JS, "const STYLE_ICON", "\n") for item in options.STYLES)
+    assert "ICONS.generic" in between(JS, "  function icon(", "\n  }")  # неизвестный id: нейтральная иконка, не эмодзи
+
+
+def test_app_is_always_white_whatever_telegram_theme():
+    assert "const WHITE = '#ffffff'" in JS and "tg.setBackgroundColor(WHITE)" in JS and "setHeader(WHITE)" in JS
+    assert "bg_color" not in JS and "DEBUG_THEMES" not in JS and "NIGHT" not in JS
+    assert 'name="color-scheme" content="light"' in HTML
+    assert "prefers-color-scheme: dark" not in CSS and "--tg-theme" not in CSS
+    assert re.search(r"--bg: #ffffff;", CSS) and "color-scheme: light;" in CSS
+    for gone in ("heroScene", "bookScene", "starfield", "sparkle"):    # ночной hero с луной и юртой убран
+        assert gone not in JS, gone
+
+
+def test_welcome_example_images_are_the_new_book():
+    from PIL import Image
+
+    img_dir = WEBAPP / "img"
+    for name, size in (("book-cover.jpg", (720, 720)), ("book-p2.jpg", (1200, 600)), ("book-p4.jpg", (1200, 600)), ("book-p6.jpg", (1200, 600))):
+        with Image.open(img_dir / name) as pic:
+            assert pic.size == size, name
+    assert not list(img_dir.glob("ex-*.jpg")), "старые примеры (ex-*.jpg) должны быть удалены"
+    assert "ex-cover" not in JS and "ex-p" not in JS
+    examples = between(JS, "const EXAMPLE = [", "\n  ];")
+    assert examples.count("img: '/static/img/book-") == 4 and "cover: true" in examples
+    for text in ("У входа в лес Артём присел рядом с Топиком.", "У реки Топик робко смотрел на воду.", "На вершине мамы не было видно"):
+        assert text in examples, text
+    assert "Примеры книги про Артёма и динозаврика" in JS
+    rail = between(JS, "function exampleRail()", "function showWelcome()")
+    assert "fetchpriority=\"high\"" in rail and "loading=\"lazy\"" in rail and "width=\"' + x.w + '\" height=\"' + x.h" in rail
+    assert re.search(r"\.rail \{[^}]*scroll-snap-type: x mandatory", CSS) and ".pip[aria-current=true]" in CSS
+    assert re.search(r"\.ex\.page-ex img \{ aspect-ratio: 2 / 1;", CSS) and re.search(r"\.ex\.cover-ex img \{ aspect-ratio: 1 / 1;", CSS)
+
+
+def test_welcome_has_light_hero_with_showcase_and_main_button_before_the_story():
+    welcome = between(JS, "function showWelcome()", "function bindWelcome()")
+    order = [welcome.index(part) for part in ("<h1>Книга, где главный герой", 'class="lead"', "exampleRail()", 'id="hero-cta"', 'class="sheet"', 'id="dock"')]
+    assert order == sorted(order)                                   # заголовок, подзаголовок, витрина, кнопка, потом остальное
+    assert ".hero {" in CSS and "night" not in CSS.lower()
+    assert "new IntersectionObserver" in JS and "disconnect()" in JS     # нижняя кнопка появляется, когда главная ушла с экрана
+
+
+def test_touch_targets_and_motion_floor_in_css():
+    assert "min-height: 56px" in between(CSS, ".btn {", "}") and "min-height: 44px" in between(CSS, ".back {", "}")
+    assert re.search(r"\.pip \{[^}]*width: 44px; height: 44px", CSS) and "inset: -6px -4px" in between(CSS, ".switch::before", "}")
+    assert "@media (prefers-reduced-motion: reduce)" in CSS and ":focus-visible { outline: 3px solid var(--brand)" in CSS

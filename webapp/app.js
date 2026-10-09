@@ -16,31 +16,22 @@
     bad() { try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('error'); } catch (e) { /* без вибрации */ } },
   };
 
-  // Палитры Telegram для проверки в обычном браузере: ?theme=dark или ?theme=light (только вне Telegram)
-  const DEBUG_THEMES = {
-    light: { bg_color: '#ffffff', text_color: '#000000', hint_color: '#999999', link_color: '#168acd', button_color: '#40a7e3', button_text_color: '#ffffff', secondary_bg_color: '#efeff3', destructive_text_color: '#e53935' },
-    dark: { bg_color: '#212121', text_color: '#ffffff', hint_color: '#aaaaaa', link_color: '#8774e1', button_color: '#8774e1', button_text_color: '#ffffff', secondary_bg_color: '#181818', destructive_text_color: '#ff595a' },
-  };
-  const NIGHT = '#1b1747';
+  // Приложение всегда светлое и белое, что бы ни стояло в теме Telegram
+  const WHITE = '#ffffff';
 
   function setHeader(color) {
-    S.header = color;
-    try { if (tg) tg.setHeaderColor(color); } catch (e) { /* старые версии Telegram */ }
+    S.header = color || WHITE;
+    try { if (tg) tg.setHeaderColor(S.header); } catch (e) { /* старые версии Telegram */ }
   }
 
   function applyTheme() {
     const root = document.documentElement;
-    const debug = !inTelegram && DEBUG_THEMES[query.get('theme')] ? query.get('theme') : null;
-    if (debug) {
-      const theme = DEBUG_THEMES[debug];
-      Object.keys(theme).forEach((key) => root.style.setProperty('--tg-theme-' + key.replace(/_/g, '-'), theme[key]));
-      root.style.colorScheme = debug;
-      root.dataset.scheme = debug;
-    }
+    root.dataset.scheme = 'light';
+    root.style.colorScheme = 'light';
     if (tg) {
-      try { root.dataset.scheme = tg.colorScheme; root.style.colorScheme = tg.colorScheme; } catch (e) { /* ok */ }
-      try { tg.setBackgroundColor('bg_color'); } catch (e) { /* ok */ }
-      setHeader(S.header || 'bg_color');
+      try { tg.setBackgroundColor(WHITE); } catch (e) { /* ok */ }
+      try { if (tg.setBottomBarColor) tg.setBottomBarColor(WHITE); } catch (e) { /* ok */ }
+      setHeader(WHITE);
     }
   }
 
@@ -72,154 +63,169 @@
     return forms[2];
   }
 
+  /* ---- иконки: один нарисованный набор, сетка 24px, линия 2px с круглыми концами, мягкая заливка ----
+     class="a" — светло-лавандовая заливка, class="b" — тёплый акцент, без класса — только линия.
+     Цвета заливок задаёт CSS (--ic-a, --ic-b), линия берёт currentColor. Нет иконки для id — рисуем нейтральную generic. */
   const ICONS = {
+    /* --- интерфейс --- */
     back: '<path d="M15 5l-7 7 7 7"/>',
-    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
     next: '<path d="M9 5l7 7-7 7"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
-    download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>',
-    send: '<path d="M4 12l16-8-6 16-3-6.5L4 12z"/>',
-    refresh: '<path d="M19 8a7.5 7.5 0 0 0-13-2L4.5 8M4.5 4v4h4M5 16a7.5 7.5 0 0 0 13 2l1.5-2M19.5 20v-4h-4"/>',
-    warn: '<path d="M12 4l9 16H3L12 4zM12 10v4.5M12 17.2v.1"/>',
-    clip: '<path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 17a1.6 1.6 0 0 1-2.3-2.3L15 7.5"/>',
-    gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>',
-    upload: '<path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19.5h14"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
     minus: '<path d="M5 12h14"/>',
+    close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+    download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>',
+    upload: '<path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19.5h14"/>',
+    refresh: '<path d="M19 8a7.5 7.5 0 0 0-13-2L4.5 8M4.5 4v4h4M5 16a7.5 7.5 0 0 0 13 2l1.5-2M19.5 20v-4h-4"/>',
+    send: '<path class="a" d="M4 12l16-8-6 16-3-6.5z"/><path d="M11 13.5L20 4"/>',
+    share: '<circle class="a" cx="6" cy="12" r="2.6"/><circle class="a" cx="17.5" cy="6" r="2.6"/><circle class="a" cx="17.5" cy="18" r="2.6"/><path d="M8.3 10.8l7-3.6M8.3 13.2l7 3.6"/>',
+    copy: '<rect class="a" x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6A2.5 2.5 0 0 0 13 3.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/>',
+    link: '<path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1 1"/><path d="M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1-1"/>',
+    clip: '<path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 17a1.6 1.6 0 0 1-2.3-2.3L15 7.5"/>',
+    qr: '<rect class="a" x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect class="a" x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect class="a" x="3.5" y="13.5" width="7" height="7" rx="1.8"/><path d="M14 14h2.5v2.5M20.5 14v.01M14 20.5h.01M17.5 20.5h3V18"/>',
+    receipt: '<path class="a" d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4z"/><path d="M9 8h6M9 11.5h6M9 15h3"/>',
+    lock: '<rect class="a" x="4.5" y="10.5" width="15" height="10" rx="2.8"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.4v2.4"/>',
+    clock: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    done: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M8 12.4l2.8 2.8 5.2-5.6"/>',
+    error: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/>',
+    warn: '<path class="b" d="M12 4l9 16H3z"/><path d="M12 10v4.4M12 17.2v.01"/>',
+    admin: '<path d="M4 7h9.6M18.4 7H20M4 17h1.6M10.4 17H20"/><circle class="b" cx="16" cy="7" r="2.4"/><circle class="b" cx="8" cy="17" r="2.4"/>',
+    trash: '<path class="a" d="M6.5 7.5l.9 11a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4l.9-11z"/><path d="M4.5 7.5h15M9.5 7.5V5.6a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.9M10.5 11.5v5M13.5 11.5v5"/>',
+    camera: '<path class="a" d="M4.5 8h2.6l1.4-2.2h7l1.4 2.2h2.6A1.5 1.5 0 0 1 21 9.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-9A1.5 1.5 0 0 1 4.5 8z"/><circle class="b" cx="12" cy="13.5" r="3.4"/>',
+    image: '<rect class="a" x="3.5" y="4.5" width="17" height="15" rx="3"/><circle class="b" cx="9" cy="9.6" r="1.9"/><path d="M3.8 16.6l4.8-4.6a1.6 1.6 0 0 1 2.2 0l3.7 3.6 1.5-1.4a1.6 1.6 0 0 1 2.2 0l2 1.9"/>',
+    phone: '<rect class="a" x="6.5" y="3" width="11" height="18" rx="3"/><path d="M10.5 17.5h3"/>',
+    card: '<rect class="a" x="3" y="5.5" width="18" height="13" rx="3"/><path d="M3 10h18"/><path class="b" d="M7 14.5h3.2"/>',
+    leaf: '<path class="a" d="M5 19c0-8 4.5-13.5 14-14.5 0 9-5 14.5-12.5 14.5z"/><path d="M5 19c2-4 5-7 9-9"/>',
+    info: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.01"/>',
+    globe: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.5 3.4 5.3 3.4 8.5s-1.1 6-3.4 8.5c-2.3-2.5-3.4-5.3-3.4-8.5S9.7 6 12 3.5z"/>',
+    generic: '<circle class="a" cx="12" cy="12" r="8.5"/><circle class="b" cx="12" cy="12" r="2.6"/>',
+
+    /* --- шаги мастера --- */
+    child: '<circle class="a" cx="12" cy="13" r="7"/><path d="M9.4 12v.01M14.6 12v.01"/><path d="M9.9 15.4c.7.8 1.4 1.1 2.1 1.1s1.4-.3 2.1-1.1"/><path class="b" d="M12 6c-.2-1.4.4-2.4 1.7-3"/>',
+    cake: '<path class="a" d="M4.5 12.5h15v7a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5z"/><path d="M4.5 16.5q1.9-1.8 3.75 0t3.75 0 3.75 0 3.75 0"/><path d="M12 9v3.5"/><path class="b" d="M12 3.6c1.3 1 1.6 1.8 1.6 2.5a1.6 1.6 0 0 1-3.2 0c0-.7.3-1.5 1.6-2.5z"/>',
+    boy: '<circle class="a" cx="12" cy="12.8" r="8"/><path class="b" d="M4.4 11c.6-4.2 3.6-6.5 7.6-6.5s7 2.3 7.6 6.5c-2.2-.2-4-1.2-5-2.6-1.6 1.6-5.2 2.6-10.2 2.6z"/><path d="M9.2 13.8v.01M14.8 13.8v.01"/><path d="M9.6 16.8c1.3 1.1 3.5 1.1 4.8 0"/>',
+    girl: '<path class="b" d="M12 3.6c-4.7 0-7.4 3.2-7.4 7.8v5.6c0 1.4.8 2.2 2 2.2h2.2V15h6.4v4.2H17c1.2 0 2-.8 2-2.2v-5.6c0-4.6-2.7-7.8-7-7.8z"/><circle class="a" cx="12" cy="12.6" r="5.2"/><path d="M9.8 12.6v.01M14.2 12.6v.01"/><path d="M10 15c.6.6 1.3.9 2 .9s1.4-.3 2-.9"/>',
+    portrait: '<rect class="a" x="3.5" y="3.5" width="17" height="17" rx="5"/><circle class="b" cx="12" cy="10" r="3"/><path d="M6.8 18.4c.8-2.6 2.8-3.9 5.2-3.9s4.4 1.3 5.2 3.9"/>',
+    heart: '<path class="a" d="M12 20.2C6.6 16.4 3.4 13.1 3.4 9.3a4.5 4.5 0 0 1 8.6-1.9 4.5 4.5 0 0 1 8.6 1.9c0 3.8-3.2 7.1-8.6 10.9z"/>',
+    smile: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M9 10.2v.01M15 10.2v.01"/><path d="M8.6 14c.9 1.9 2.1 2.8 3.4 2.8s2.5-.9 3.4-2.8"/>',
+    sad: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M9 10v.01M15 10v.01"/><path d="M8.8 16.6c.9-1.4 2-2.1 3.2-2.1s2.3.7 3.2 2.1"/>',
+    pin: '<path class="a" d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle class="b" cx="12" cy="10" r="2.4"/>',
+    bulb: '<path class="a" d="M8.2 14.6A6 6 0 1 1 15.8 14.6c-.9.7-1.3 1.5-1.3 2.4H9.5c0-.9-.4-1.7-1.3-2.4z"/><path d="M9.8 20h4.4M10.2 17.6h3.6"/>',
+    book: '<path class="a" d="M12 6.5C10 5 7 4.5 3.8 5v12.7c3.2-.4 6.2.1 8.2 1.6 2-1.5 5-2 8.2-1.6V5c-3.2-.5-6.2 0-8.2 1.5z"/><path d="M12 6.5v12.8"/>',
+    rainbow: '<path class="a" d="M3.5 18a8.5 8.5 0 0 1 17 0z"/><path d="M7.5 18a4.5 4.5 0 0 1 9 0"/><path class="b" d="M10.2 18a1.8 1.8 0 0 1 3.6 0z"/>',
+    palette: '<path class="a" d="M12 3.5c-4.7 0-8.5 3.6-8.5 8.3 0 4.5 3.4 8.2 7.7 8.2 1.6 0 2.3-1 2-2.1-.3-1.1.3-2.1 1.6-2.1h2.3c1.9 0 3.4-1.4 3.4-3.2 0-4.4-3.8-8.1-8.5-8.1z"/><path class="b" d="M7.8 11.6v.01M11 7.8v.01M15.4 8.4v.01" stroke-width="2.8"/>',
+    pencil: '<path class="a" d="M4.2 19.8l.9-4 10.9-10.9a2 2 0 0 1 2.8 0l.3.3a2 2 0 0 1 0 2.8L8.2 18.9z"/><path d="M14 6.9l3.1 3.1M5.1 15.8l3.1 3.1"/>',
+    bubble: '<path class="a" d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7L7.5 20.2V16.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M8 9h8M8 12.3h5"/>',
+    moon: '<path class="a" d="M12 3a6.2 6.2 0 0 0 9 9 9 9 0 1 1-9-9z"/><circle class="b" cx="17" cy="6" r="1.5"/>',
+    lang_ru: '<path class="a" d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7L7.5 20.2V16.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><text x="12" y="13.6" text-anchor="middle" font-size="9" font-weight="900" fill="currentColor" stroke="none">А</text>',
+    lang_ky: '<path class="a" d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7L7.5 20.2V16.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><text x="12" y="13.6" text-anchor="middle" font-size="9" font-weight="900" fill="currentColor" stroke="none">Ө</text>',
+    envelope: '<rect class="a" x="3.5" y="5.5" width="17" height="13" rx="2.8"/><path d="M4.2 7.6l7.8 5.8 7.8-5.8"/>',
+    gift: '<rect class="a" x="4" y="10.2" width="16" height="10.3" rx="2"/><rect class="a" x="3" y="6.8" width="18" height="3.4" rx="1.2"/><path d="M12 6.8v13.7"/><path class="b" d="M12 6.8C10 6.8 8 6.2 8 4.8c0-1.2 1-1.6 1.8-1.4 1.1.3 2.2 1.8 2.2 3.4zM12 6.8c2 0 4-.6 4-2 0-1.2-1-1.6-1.8-1.4-1.1.3-2.2 1.8-2.2 3.4z"/>',
+
+    /* --- места --- */
+    mountains: '<path class="a" d="M2.8 19.5L9.5 7.5l3.7 6.3 2.3-3.6 5.7 9.3z"/><path class="b" d="M9.5 7.5L7.6 11l1.6-.9 1.2 1 1.4-1.1z"/>',
+    yurt: '<path class="a" d="M3.5 19.5v-5c0-3.7 3.8-7.2 8.5-7.2s8.5 3.5 8.5 7.2v5z"/><path d="M3.5 14.3h17M12 7.3V4.6"/><path class="b" d="M9.8 19.5v-3.4a2.2 2.2 0 0 1 4.4 0v3.4"/>',
+    lake: '<path class="a" d="M3.5 13.5l4.2-6.2 3 3.8 2.6-3.1 6.2 5.5z"/><path d="M3 17.2q1.5-1.5 3 0t3 0 3 0 3 0 3 0 3 0M6 20.6q1.5-1.5 3 0t3 0 3 0 3 0"/>',
+    bazaar: '<path class="a" d="M4 10.5l1.4-5.5h13.2l1.4 5.5z"/><path class="b" d="M4 10.5a2.67 2.67 0 0 0 5.33 0 2.67 2.67 0 0 0 5.34 0 2.67 2.67 0 0 0 5.33 0z"/><path d="M5.5 14.5V20M18.5 14.5V20M3.5 20h17"/>',
+    rocket: '<path class="a" d="M12 2.8c3 2.3 4.4 5.4 4.4 8.9V16H7.6v-4.3c0-3.5 1.4-6.6 4.4-8.9z"/><circle class="b" cx="12" cy="9.6" r="1.9"/><path d="M7.6 11.8L5 14.4v3.2l2.6-1.6M16.4 11.8l2.6 2.6v3.2L16.4 16"/><path class="b" d="M10 16.6h4L12 21z"/>',
+    fish: '<ellipse class="a" cx="10.5" cy="12" rx="7" ry="4.8"/><path class="b" d="M16.8 12l4.2-4v8z"/><path d="M7.4 11v.01"/>',
+
+    /* --- ценности и характер --- */
+    truth: '<path class="a" d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7L7.5 20.2V16.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M8.6 10.6l2.2 2.2 4.4-4.6"/>',
+    home: '<path class="a" d="M4.5 11L12 4.5l7.5 6.5v8a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 19z"/><path class="b" d="M12 17.6c-2.2-1.5-3.2-2.6-3.2-3.8a1.7 1.7 0 0 1 3.2-.8 1.7 1.7 0 0 1 3.2.8c0 1.2-1 2.3-3.2 3.8z"/>',
+    tulip: '<path class="a" d="M6.8 4.5c0 5.2 1.8 8.4 5.2 8.4s5.2-3.2 5.2-8.4c-1.8.5-3.2 1.4-5.2 3.4-2-2-3.4-2.9-5.2-3.4z"/><path d="M12 12.9v7.6"/><path class="b" d="M12 17.6c-3 0-4.4-1.6-4.4-3.6 2.8 0 4.4 1.2 4.4 3.6z"/>',
+    paw: '<ellipse class="a" cx="12" cy="15.6" rx="4.4" ry="3.7"/><circle class="b" cx="6.2" cy="11.6" r="1.3"/><circle class="b" cx="9.6" cy="7.6" r="1.3"/><circle class="b" cx="14.4" cy="7.6" r="1.3"/><circle class="b" cx="17.8" cy="11.6" r="1.3"/>',
+    elder: '<path class="b" d="M12 3.5c-4 0-6.8 3-6.8 7.2 0 3.2 1 5.6 2.6 7.3h8.4c1.6-1.7 2.6-4.1 2.6-7.3 0-4.2-2.8-7.2-6.8-7.2z"/><circle class="a" cx="12" cy="12.4" r="4.4"/><path d="M10.3 12v.01M13.7 12v.01"/><path d="M10.6 14.3c.8.6 1.9.6 2.8 0"/>',
+    flag: '<path d="M6 21V4"/><path class="b" d="M6 5c3-1.6 5.5 1.6 8.5 0s3.5-.4 3.5-.4v7.4s-1.2.9-3.5.4c-3-1.6-5.5 1.6-8.5 0z"/>',
+    search: '<circle class="a" cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
+    laugh: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M9 9.6v.01M15 9.6v.01"/><path class="b" d="M7.8 13h8.4c0 2.6-1.9 4.4-4.2 4.4S7.8 15.6 7.8 13z"/>',
+    shy: '<circle class="a" cx="12" cy="12" r="8.5"/><path d="M9 10.6v.01M15 10.6v.01"/><circle class="b" cx="7.4" cy="14" r="1.2"/><circle class="b" cx="16.6" cy="14" r="1.2"/><path d="M10.4 16.4c.9.5 2.3.5 3.2 0"/>',
+    anchor: '<circle class="a" cx="12" cy="5.8" r="2.3"/><path d="M12 8.1V20M7.5 11.5h9M4.5 13.5c.2 3.6 3.4 6.5 7.5 6.5s7.3-2.9 7.5-6.5"/>',
+    sprout: '<path d="M12 21v-9"/><path class="a" d="M12 12c0-3.6-2.6-6-6.5-6 0 3.6 2.4 6 6.5 6z"/><path class="b" d="M12 14c0-3 2.2-5.6 6.5-5.6 0 3.2-2.4 5.6-6.5 5.6z"/>',
+
+    /* --- темы и миры --- */
+    compass: '<circle class="a" cx="12" cy="12" r="8.5"/><path class="b" d="M15.6 8.4l-2 5.2-5.2 2 2-5.2z"/>',
+    dino: '<path class="a" d="M2.8 18.6C6 18.2 6.6 13.4 10.4 13.2c2.2-.1 4-.2 4.3-2.8l.4-3.6c.2-2.2 1.9-3.2 3.7-2.7 1.7.5 2.4 1.8 2.1 3.1-.2.8-.9 1.2-1.7 1.2h-.8c-.2 2.2.2 3.8.8 5.2v7H16.4v-3H10.6v3H7.8v-3c-1.6 1-3.2 1.8-5 1z"/><path d="M18.6 6.2v.01"/><path class="b" d="M9.4 15.4v.01M12.6 15.4v.01"/>',
+    fox: '<path class="a" d="M3.5 4.5l4.8 3c1.1-.4 2.4-.6 3.7-.6s2.6.2 3.7.6l4.8-3c.3 3.6-.3 6.6-1.6 8.8-1.3 3.5-3.9 6.3-6.9 6.3s-5.6-2.8-6.9-6.3C3.8 11.1 3.2 8.1 3.5 4.5z"/><path class="b" d="M10.2 14.4h3.6L12 16.6z"/><path d="M8.6 11.8v.01M15.4 11.8v.01"/>',
+    hero: '<path class="a" d="M12 3.5l7 2.6v5.4c0 4.2-2.8 7.4-7 9-4.2-1.6-7-4.8-7-9V6.1z"/><path class="b" d="M12.8 8l-2.8 4h2.4l-.8 3.6 3-4.2h-2.4z"/>',
+    chest: '<path class="a" d="M4 10.2c0-2.6 2-4.2 4.4-4.2h7.2c2.4 0 4.4 1.6 4.4 4.2z"/><rect class="a" x="4" y="10.2" width="16" height="9.3" rx="1.6"/><path d="M4 12.8h16"/><rect class="b" x="10.4" y="11.4" width="3.2" height="3.4" rx="1"/>',
+    boat: '<path class="a" d="M11 4v10H5.2z"/><path class="b" d="M13.4 6.4V14H19z"/><path class="a" d="M4 16.4h16l-2.4 3.5H6.4z"/>',
+    friends: '<circle class="b" cx="16.2" cy="8.6" r="2.7"/><path class="b" d="M13.4 14.2c.8-.4 1.7-.6 2.8-.6 2.8 0 4.6 1.6 4.8 4.9h-6.4"/><circle class="a" cx="8.4" cy="8.2" r="3"/><path class="a" d="M2.8 19.4c.3-3.6 2.6-5.6 5.6-5.6s5.3 2 5.6 5.6z"/>',
+    tooth: '<path class="a" d="M7.6 3.8c1.6 0 2.5.7 4.4.7s2.8-.7 4.4-.7c2.2 0 3.6 1.9 3.4 4.6-.2 2.2-1 3.6-1.4 5.6-.4 2-.6 6-2.4 6-1.4 0-1.3-3.4-2.4-4.6-.4-.5-1.1-.5-1.6-.5s-1.2 0-1.6.5c-1.1 1.2-1 4.6-2.4 4.6-1.8 0-2-4-2.4-6-.4-2-1.2-3.4-1.4-5.6C4 5.7 5.4 3.8 7.6 3.8z"/>',
+    tree: '<path class="a" d="M12 3l5.5 7h-3l4 5.5h-13l4-5.5h-3z"/><path class="b" d="M10.4 15.5h3.2V20h-3.2z"/>',
+    buoy: '<circle class="a" cx="12" cy="12" r="8.5"/><circle class="b" cx="12" cy="12" r="3.4"/><path d="M6 6l3.6 3.6M18 6l-3.6 3.6M6 18l3.6-3.6M18 18l-3.6-3.6"/>',
+    wrench: '<path class="a" d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3.8 17a2 2 0 0 0 2.8 2.8l5.6-5.5a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+    ninja: '<circle class="a" cx="12" cy="12" r="8.5"/><rect class="b" x="6" y="9.6" width="12" height="4.6" rx="2.3"/><path d="M9.4 11.9v.01M14.6 11.9v.01M20 8.2l2 -1.6M20.2 10.6l1.9 1.6"/>',
+    crown: '<path class="a" d="M3.5 8.5l4.2 3.6L12 5.5l4.3 6.6 4.2-3.6-1.6 10H5.1z"/><path class="b" d="M5.4 16.5h13.2l-.5 3H5.9z"/>',
+    hardhat: '<path class="a" d="M5 15a7 7 0 0 1 14 0z"/><path d="M12 8v7"/><path class="b" d="M3 15h18v2.6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+
+    /* --- стили картинок --- */
+    cube: '<path class="a" d="M12 3.5l7.5 4.2v8.6L12 20.5l-7.5-4.2V7.7z"/><path class="b" d="M12 3.5l7.5 4.2L12 12 4.5 7.7z"/><path d="M12 12v8.5"/>',
+    shapes: '<circle class="a" cx="8.5" cy="8.5" r="4.5"/><rect class="b" x="11" y="11" width="9" height="9" rx="1.8"/>',
+    lens: '<circle class="a" cx="12" cy="12" r="8.5"/><circle class="b" cx="12" cy="12" r="3.8"/><path d="M15.6 7.4v.01"/>',
+
+    /* --- увлечения --- */
+    horseshoe: '<path class="a" d="M4.8 5C4 9 4.2 13.5 6.2 16.6 7.6 18.8 9.6 20 12 20s4.4-1.2 5.8-3.4C19.8 13.5 20 9 19.2 5h-4c.3 3.2.2 6-.7 8-.5 1.2-1.3 1.9-2.5 1.9s-2-.7-2.5-1.9C8.6 11 8.5 8.2 8.8 5z"/><path d="M6.6 9v.01M7.3 13v.01M17.4 9v.01M16.7 13v.01"/>',
+    car: '<path class="a" d="M4 16.5v-3.2c0-.7.2-1.3.6-1.9l1.7-3.4c.4-.8 1.2-1.3 2.1-1.3h7.2c.9 0 1.7.5 2.1 1.3l1.7 3.4c.4.6.6 1.2.6 1.9v3.2c0 .6-.4 1-1 1H5c-.6 0-1-.4-1-1z"/><path d="M4.6 12.4h14.8"/><circle class="b" cx="7.8" cy="17.5" r="2.1"/><circle class="b" cx="16.2" cy="17.5" r="2.1"/>',
+    brush: '<path d="M19.6 4.4L11.8 12.2"/><path class="a" d="M9.6 12.6c1.9-.4 3.6 1.1 3.2 3.2-.4 2.6-3 4.2-6.6 4.2 1-1 1.2-1.9 1-2.8-.2-2.1.5-4.2 2.4-4.6z"/>',
+    note: '<circle class="a" cx="7" cy="17.5" r="2.8"/><circle class="a" cx="17" cy="15.5" r="2.8"/><path d="M9.8 17.5V6.2l10-2v11.3M9.8 9.8l10-2"/>',
+    ball: '<circle class="a" cx="12" cy="12" r="8.5"/><path class="b" d="M12 8.4l3 2.2-1.1 3.5h-3.8L9 10.6z"/><path d="M12 8.4V3.6M15 10.6l4.4-1.6M13.9 14.1l2.8 3.9M10.1 14.1L7.3 18M9 10.6L4.6 9"/>',
+    doll: '<circle class="a" cx="12" cy="6.4" r="3.2"/><path class="b" d="M12 10.6c-2.4 0-3.6 3-4.6 9.4h9.2c-1-6.4-2.2-9.4-4.6-9.4z"/><path d="M8.6 12.6L5.6 14.4M15.4 12.6l3 1.8"/>',
+    planet: '<circle class="a" cx="12" cy="12" r="5.6"/><ellipse cx="12" cy="12" rx="9.6" ry="3.2" transform="rotate(-24 12 12)"/>',
+    brick: '<rect class="a" x="3.5" y="9.5" width="17" height="10" rx="2"/><rect class="b" x="5.6" y="5.6" width="3.4" height="3.9" rx="1"/><rect class="b" x="10.3" y="5.6" width="3.4" height="3.9" rx="1"/><rect class="b" x="15" y="5.6" width="3.4" height="3.9" rx="1"/>',
+    candy: '<ellipse class="a" cx="12" cy="12" rx="5" ry="4.2"/><path class="b" d="M7.2 10.2L3.4 7.6v8.8l3.8-2.6zM16.8 10.2l3.8-2.6v8.8l-3.8-2.6z"/><path d="M10.2 8.6l-1 6.4"/>',
   };
   function icon(name, cls) {
-    return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+    const body = ICONS[name] || ICONS.generic;
+    return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + body + '</svg>';
   }
 
-  /* ---- эмодзи и цвета для вариантов ---- */
+  /* ---- какая иконка к какому варианту (сервер присылает id; если иконки нет — нейтральная generic) ---- */
   const PLACE_META = {
-    mountains: { e: '🏔️', hue: '#5b8def', sub: 'снежные вершины и горные ручьи' },
-    yurt: { e: '🏕️', hue: '#36d6a8', sub: 'зелёные луга, кони и дымок над юртой' },
-    issykkul: { e: '🌊', hue: '#3fa9f5', sub: 'синее озеро и горы вдали' },
-    silkroad: { e: '🐪', hue: '#ffb020', sub: 'караваны, сладкие дыни и яркие лавки' },
-    space: { e: '🚀', hue: '#7a5cff', sub: 'звёзды, планеты и уютный корабль' },
-    underwater: { e: '🐠', hue: '#22c4c4', sub: 'кораллы, рыбки и лучи солнца' },
-    custom: { e: '✏️', hue: '#ff7b6b', sub: 'опишите место сами' },
+    mountains: { i: 'mountains', sub: 'снежные вершины и горные ручьи' },
+    yurt: { i: 'yurt', sub: 'зелёные луга, кони и дымок над юртой' },
+    issykkul: { i: 'lake', sub: 'синее озеро и горы вдали' },
+    silkroad: { i: 'bazaar', sub: 'караваны, сладкие дыни и яркие лавки' },
+    space: { i: 'rocket', sub: 'звёзды, планеты и уютный корабль' },
+    underwater: { i: 'fish', sub: 'кораллы, рыбки и лучи солнца' },
+    custom: { i: 'pencil', sub: 'опишите место сами' },
   };
   const VALUE_META = {
-    kindness: { e: '💛', hue: '#ffb020', sub: 'делиться теплом и помогать другим' },
-    honesty: { e: '🌟', hue: '#7a5cff', sub: 'говорить правду, даже когда непросто' },
-    help_parents: { e: '🏡', hue: '#ff7b6b', sub: 'быть опорой для мамы и папы' },
-    gratitude: { e: '🙏', hue: '#36d6a8', sub: 'ценить добро и говорить «спасибо»' },
-    animals: { e: '🐑', hue: '#3fa9f5', sub: 'беречь тех, кто слабее' },
-    respect_elders: { e: '👵', hue: '#ff6fb5', sub: 'слушать и помогать старшим' },
-    courage: { e: '🦁', hue: '#ff8a3d', sub: 'поступать правильно, когда страшно' },
+    kindness: { i: 'heart', sub: 'делиться теплом и помогать другим' },
+    honesty: { i: 'truth', sub: 'говорить правду, даже когда непросто' },
+    help_parents: { i: 'home', sub: 'быть опорой для мамы и папы' },
+    gratitude: { i: 'tulip', sub: 'ценить добро и говорить «спасибо»' },
+    animals: { i: 'paw', sub: 'беречь тех, кто слабее' },
+    respect_elders: { i: 'elder', sub: 'слушать и помогать старшим' },
+    courage: { i: 'flag', sub: 'поступать правильно, когда страшно' },
   };
-  // темы книги: эмодзи и цвет плитки (подпись и подсказку отдаёт сервер в options.topics)
-  const TOPIC_META = {
-    adventure: { e: '🧭', hue: '#7a5cff' },
-    dinosaurs: { e: '🦖', hue: '#36d6a8' },
-    space: { e: '🚀', hue: '#5b8def' },
-    animals: { e: '🐻', hue: '#ff8a3d' },
-    superheroes: { e: '🦸', hue: '#ff7b6b' },
-    pirates: { e: '🏴‍☠️', hue: '#3a4a6b' },
-    sea: { e: '🌊', hue: '#3fa9f5' },
-    friends: { e: '🤝', hue: '#ff6fb5' },
-    kindness: { e: '💛', hue: '#ffb020' },
-    life_lesson: { e: '🪥', hue: '#22c4c4' },
-    custom: { e: '✏️', hue: '#ff7b6b' },
+  const TOPIC_ICON = { adventure: 'compass', dinosaurs: 'dino', space: 'rocket', animals: 'fox', superheroes: 'hero', pirates: 'chest', sea: 'boat', friends: 'friends', kindness: 'heart', life_lesson: 'tooth', custom: 'pencil' };
+  const WORLD_ICON = { forest_house: 'tree', rescue_team: 'buoy', workshop_helpers: 'wrench', ninja_animals: 'ninja', caped_hero: 'hero', kingdom: 'crown', dino_friend: 'dino', space_crew: 'rocket', builders: 'hardhat', mountain_friends: 'mountains', custom: 'pencil' };
+  const STYLE_ICON = { cartoon3d: 'cube', flat2d: 'shapes', realistic: 'lens' };
+  const LIKE_ICON = { 'Лошади': 'horseshoe', 'Животные': 'paw', 'Динозавры': 'dino', 'Машинки': 'car', 'Рисование': 'brush', 'Музыка': 'note', 'Футбол': 'ball', 'Куклы': 'doll', 'Космос': 'planet', 'Конструктор': 'brick', 'Книги': 'book', 'Сладости': 'candy' };
+  const TRAIT_ICON = { kind: 'heart', brave: 'flag', curious: 'search', funny: 'laugh', shy: 'shy', stubborn: 'anchor', caring: 'sprout' };
+  const STEP_ICON = {
+    name: 'child', age: 'cake', gender: 'friends', appearance: 'portrait', likes: 'heart', traits: 'smile', place: 'pin', value: 'bulb',
+    topic: 'book', world: 'rainbow', style: 'palette', extras: 'bubble', islamic: 'moon', language: 'globe', dedication: 'envelope', photo: 'camera',
+    summary: 'gift',
   };
-  // миры «как в мультфильме» (подпись, подсказку и эмодзи отдаёт сервер в options.worlds; здесь только цвет плитки и запасное эмодзи)
-  const WORLD_META = {
-    forest_house: { e: '🏡', hue: '#36d6a8' },
-    rescue_team: { e: '🚒', hue: '#ff7b6b' },
-    workshop_helpers: { e: '🛠️', hue: '#ffb020' },
-    ninja_animals: { e: '🥷', hue: '#7a5cff' },
-    caped_hero: { e: '🦸', hue: '#3fa9f5' },
-    kingdom: { e: '👑', hue: '#ff6fb5' },
-    dino_friend: { e: '🦕', hue: '#22c493' },
-    space_crew: { e: '🚀', hue: '#5b8def' },
-    builders: { e: '🚜', hue: '#ff8a3d' },
-    mountain_friends: { e: '🏔️', hue: '#22c4c4' },
-    custom: { e: '✏️', hue: '#ff7b6b' },
-  };
-  // стили картинок (подпись, подсказку и эмодзи отдаёт сервер в options.styles; здесь только запасное эмодзи и цвет акцента)
-  const STYLE_META = {
-    cartoon3d: { e: '🧸', hue: '#ffb020' },
-    flat2d: { e: '✏️', hue: '#3fa9f5' },
-    realistic: { e: '📷', hue: '#8a8f98' },
-  };
-  const LIKE_EMOJI = { 'Лошади': '🐴', 'Животные': '🐾', 'Динозавры': '🦖', 'Машинки': '🚗', 'Рисование': '🎨', 'Музыка': '🎵', 'Футбол': '⚽', 'Куклы': '🧸', 'Космос': '🚀', 'Конструктор': '🧱', 'Книги': '📚', 'Сладости': '🍬' };
-  const TRAIT_EMOJI = { kind: '💛', brave: '🦁', curious: '🔍', funny: '😄', shy: '🌸', stubborn: '💪', caring: '🤗' };
-  const STEP_META = {
-    name: ['👶', '#7a5cff'], age: ['🎂', '#ff7b6b'], gender: ['🧸', '#3fa9f5'], appearance: ['🎨', '#ff6fb5'],
-    likes: ['❤️', '#ff7b6b'], traits: ['🌟', '#ffb020'], place: ['🗺️', '#36d6a8'], value: ['🧭', '#7a5cff'],
-    topic: ['📚', '#ff8a3d'], world: ['🌈', '#ff6fb5'], style: ['🖼️', '#5b8def'], extras: ['💭', '#22c4c4'],
-    islamic: ['🌙', '#5b8def'], language: ['🌍', '#3fa9f5'], dedication: ['💌', '#ff6fb5'], photo: ['📸', '#22c4c4'],
-    summary: ['🎁', '#ffb020'],
-  };
+  const iconOf = (map, id, fallback) => (map && map[id]) || fallback || 'generic';
+  // сообщение об ошибке: значок + текст (текст всегда экранируем)
+  const errorHtml = (text) => icon('error') + '<span>' + esc(text) + '</span>';
 
   const ORNAMENT = '<svg class="orn" viewBox="0 0 120 12" aria-hidden="true"><g stroke="currentColor" stroke-width="1.2"><path d="M2 6h42M76 6h42"/></g><g fill="currentColor"><circle cx="52" cy="6" r="2"/><circle cx="60" cy="6" r="3"/><circle cx="68" cy="6" r="2"/></g></svg>';
 
-  /* ---- иллюстрации (SVG): ночное небо Тянь-Шаня ---- */
-  function starfield(count, width, maxY, seed) {
-    let s = seed;
-    const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-    let out = '';
-    for (let i = 0; i < count; i++) {
-      const o = (0.35 + rnd() * 0.65).toFixed(2);
-      const twinkle = i % 3 === 0 ? ' class="tw" style="--o:' + o + ';animation-delay:' + (rnd() * 3).toFixed(1) + 's"' : '';
-      out += '<circle cx="' + (rnd() * width).toFixed(1) + '" cy="' + (rnd() * maxY).toFixed(1) + '" r="' + (0.5 + rnd() * 1.3).toFixed(2) + '" fill="#fff" opacity="' + o + '"' + twinkle + '/>';
-    }
-    return out;
-  }
-  function sparkle(x, y, size, delay, cls) {
-    const b = size * 0.28;
-    return '<path class="' + (cls || 'tw') + '" style="animation-delay:' + delay + 's" fill="#ffd978" d="M' + x + ' ' + (y - size) + 'Q' + (x + b) + ' ' + (y - b) + ' ' + (x + size) + ' ' + y +
-      'Q' + (x + b) + ' ' + (y + b) + ' ' + x + ' ' + (y + size) + 'Q' + (x - b) + ' ' + (y + b) + ' ' + (x - size) + ' ' + y + 'Q' + (x - b) + ' ' + (y - b) + ' ' + x + ' ' + (y - size) + 'Z"/>';
-  }
-
-  function heroScene() {
-    return '<svg viewBox="0 0 360 400" preserveAspectRatio="xMidYMax slice" aria-hidden="true">' +
-      '<defs>' +
-      '<linearGradient id="hs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#15123c"/><stop offset=".45" stop-color="#2c2380"/><stop offset=".78" stop-color="#6a3fb0"/><stop offset="1" stop-color="#ff8fa3"/></linearGradient>' +
-      '<radialGradient id="hg"><stop offset="0" stop-color="#ffd978" stop-opacity=".8"/><stop offset="1" stop-color="#ffd978" stop-opacity="0"/></radialGradient>' +
-      '<radialGradient id="hh"><stop offset="0" stop-color="#ffb199" stop-opacity=".7"/><stop offset="1" stop-color="#ffb199" stop-opacity="0"/></radialGradient>' +
-      '<mask id="hm"><rect width="360" height="400" fill="#fff"/><circle cx="310" cy="64" r="15" fill="#000"/></mask>' +
-      '</defs>' +
-      '<rect width="360" height="400" fill="url(#hs)"/>' +
-      starfield(46, 360, 260, 7) +
-      '<circle cx="302" cy="70" r="30" fill="#ffe8a3" opacity=".14"/><circle cx="302" cy="70" r="17" fill="#ffe8a3" mask="url(#hm)"/>' +
-      sparkle(58, 128, 6, 0.4) + sparkle(322, 168, 7, 1.3) + sparkle(190, 232, 5, 2.1) + sparkle(30, 232, 4, 0.9) +
-      '<ellipse cx="180" cy="330" rx="260" ry="80" fill="url(#hh)"/>' +
-      '<path d="M0 338L36 318 64 332 104 300 148 330 190 310 236 336 282 304 324 330 360 316V400H0Z" fill="#4a3aa6" opacity=".85"/>' +
-      '<path d="M104 300l-8 11 5-2 5 5 5-5 3 2z" fill="#fff" opacity=".6"/><path d="M282 304l-8 11 5-2 5 5 5-5 3 2z" fill="#fff" opacity=".6"/>' +
-      '<path d="M0 360L46 340 96 358 146 334 202 360 254 338 306 358 360 340V400H0Z" fill="#33288a"/>' +
-      '<circle cx="236" cy="324" r="52" fill="url(#hg)" class="fl"/>' +
-      '<g class="fl"><path d="M192 316v26c16-4 32-3 44 6 12-9 28-10 44-6v-26z" fill="#5b3fe0"/>' +
-      '<path d="M236 320c-12-8-28-10-40-6v24c12-3 28-2 40 6z" fill="#fff7e0"/><path d="M236 320c12-8 28-10 40-6v24c-12-3-28-2-40 6z" fill="#fffaf0"/>' +
-      '<g stroke="#d9c9a0" stroke-width="1.2" stroke-linecap="round"><path d="M202 322h26M202 328h22M202 334h24M244 322h26M246 328h22M244 334h24"/></g>' +
-      '<path d="M236 320v28" stroke="#c9b88a" stroke-width="1"/></g>' +
-      sparkle(210, 296, 6, 0, 'rs') + sparkle(264, 288, 7, 1, 'rs') + sparkle(238, 272, 5, 2, 'rs') +
-      '<g transform="translate(0,-30)"><path d="M0 380Q60 362 130 374T250 372T360 366V430H0Z" fill="#231b66"/>' +
-      '<circle cx="66" cy="380" r="18" fill="#ffc24d" opacity=".22"/>' +
-      '<path d="M46 382a20 15 0 0 1 40 0z" fill="#fbe7c6"/><rect x="46" y="380" width="40" height="10" fill="#f0d4a0"/>' +
-      '<rect x="61" y="382" width="10" height="8" rx="5" fill="#ffc24d"/><path d="M66 367v-5" stroke="#f0d4a0" stroke-width="2" stroke-linecap="round"/>' +
-      '<path class="sm" d="M66 361c-3-4 3-7 0-11" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".5"/>' +
-      '<path d="M0 396Q90 382 180 394T360 390V430H0Z" fill="#150f45"/></g>' +
-      '</svg>';
-  }
-
-  function bookScene() {
-    const pages = ['#fffaf0', '#fff0cf', '#ffe8bb']
-      .map((fill, i) => '<path class="pg" style="animation-delay:' + (i * 0.9).toFixed(1) + 's" fill="' + fill + '" stroke="#e2d2a6" stroke-width=".8" d="M160 128c20-14 60-18 94-10v30c-34-6-74-2-94 10z"/>').join('');
-    return '<svg viewBox="0 0 320 196" preserveAspectRatio="xMidYMid slice" aria-hidden="true">' +
-      '<defs><linearGradient id="ws" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#15123c"/><stop offset=".6" stop-color="#2c2380"/><stop offset="1" stop-color="#6a3fb0"/></linearGradient>' +
-      '<radialGradient id="wg"><stop offset="0" stop-color="#ffd978" stop-opacity=".7"/><stop offset="1" stop-color="#ffd978" stop-opacity="0"/></radialGradient></defs>' +
-      '<rect width="320" height="196" fill="url(#ws)"/>' + starfield(34, 320, 150, 11) +
-      '<path d="M0 196V176l36-20 40 18 52-26 44 22 52-24 46 22 50-18v46z" fill="#241b66" opacity=".9"/>' +
-      '<circle cx="160" cy="128" r="84" fill="url(#wg)"/>' +
-      '<g><path d="M56 118v36c40-6 80-4 104 8 24-12 64-14 104-8v-36z" fill="#5b3fe0"/>' +
-      '<path d="M160 128c-20-14-60-18-94-10v30c34-6 74-2 94 10z" fill="#fff7e0"/><path d="M160 128c20-14 60-18 94-10v30c-34-6-74-2-94 10z" fill="#fffaf0"/>' +
-      '<g stroke="#d9c9a0" stroke-width="1.3" stroke-linecap="round"><path d="M76 126h54M76 134h48M76 142h52M190 126h54M192 134h48M190 142h52"/></g>' +
-      pages + '<path d="M160 128v32" stroke="#c9b88a" stroke-width="1.2"/></g>' +
-      sparkle(108, 92, 7, 0, 'rs') + sparkle(160, 70, 8, 0.9, 'rs') + sparkle(214, 90, 7, 1.8, 'rs') + sparkle(132, 52, 5, 1.3, 'rs') + sparkle(192, 48, 5, 2.2, 'rs') +
-      '<g class="fl"><path d="M250 60c26-10 44-34 52-58-26 4-46 18-58 38-6 10-2 18 6 20z" fill="#ffc24d"/><path d="M246 76l8-18" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></g>' +
+  /* ---- иллюстрация экрана ожидания: раскрытая книга, страницы переворачиваются, карандаш пишет ---- */
+  function waitArt() {
+    return '<svg viewBox="0 0 320 176" preserveAspectRatio="xMidYMid slice" aria-hidden="true">' +
+      '<ellipse cx="160" cy="150" rx="92" ry="9" fill="#e4defd"/>' +
+      '<path d="M160 56C136 40 98 36 62 42v80c36-6 74-2 98 14 24-16 62-20 98-14V42c-36-6-74-2-98 14z" fill="#fff" stroke="#4a35c9" stroke-width="4" stroke-linejoin="round"/>' +
+      '<path d="M160 56v80" stroke="#4a35c9" stroke-width="4" stroke-linecap="round"/>' +
+      '<g fill="none" stroke="#d9d3f5" stroke-width="4" stroke-linecap="round"><path d="M80 70c22-3 46 0 66 9M80 86c22-3 46 0 66 9M80 102c22-3 36 0 52 6"/></g>' +
+      '<path class="pg" fill="#fff" stroke="#4a35c9" stroke-width="4" stroke-linejoin="round" d="M160 56c24-16 62-20 98-14v80c-36-6-74-2-98 14z"/>' +
+      '<g fill="none" stroke="#ffd3a3" stroke-width="4" stroke-linecap="round"><path d="M178 72c20-6 42-5 62-1M178 88c20-6 42-5 62-1M178 104c20-6 32-5 46-2"/></g>' +
+      '<g class="fl"><path d="M236 34l22-22 10 10-22 22-14 4z" fill="#ffd3a3" stroke="#4a35c9" stroke-width="4" stroke-linejoin="round"/><path d="M254 16l10 10" stroke="#4a35c9" stroke-width="4" stroke-linecap="round"/></g>' +
       '</svg>';
   }
 
@@ -332,6 +338,7 @@
     clearTimeout(S.autoTimer);
     clearInterval(S.adminTimer);
     S.adminTimer = null;
+    if (S.io) { S.io.disconnect(); S.io = null; }
     S.payId += 1;
   }
 
@@ -342,9 +349,9 @@
     setBackButton(false);
   }
 
-  function stateScreen(emoji, title, text, buttons, extra) {
+  function stateScreen(iconName, title, text, buttons, extra) {
     const btns = (buttons || []).map((b) => '<button type="button" class="btn ' + (b.cls || '') + '" data-act="' + b.act + '">' + (b.icon ? icon(b.icon) : '') + esc(b.label) + '</button>').join('');
-    app.innerHTML = '<section class="screen state" role="alert"><div class="big em" aria-hidden="true">' + emoji + '</div>' +
+    app.innerHTML = '<section class="screen state" role="alert"><div class="big" aria-hidden="true">' + icon(iconName) + '</div>' +
       '<h1>' + esc(title) + '</h1><p>' + esc(text) + '</p>' + (extra || '') +
       (btns ? '<div class="btns">' + btns + '</div>' : '') + '</section>';
   }
@@ -353,9 +360,9 @@
     leaveScreen();
     S.screen = 'blocked';
     setBackButton(false);
-    setHeader('bg_color');
-    stateScreen('📱', 'Откройте приложение в Telegram',
-      'Эта страница работает внутри Telegram. Найдите нашего бота и нажмите кнопку «Создать книгу» — там всё и случится ✨', [],
+    setHeader();
+    stateScreen('phone', 'Откройте приложение в Telegram',
+      'Эта страница работает внутри Telegram. Найдите нашего бота и нажмите кнопку «Создать книгу» — там всё и случится.', [],
       '<details><summary>Для владельца бота</summary><pre>Чтобы проверить в обычном браузере, поставьте DEV_MODE=1 в файле .env и перезапустите сервер.</pre></details>');
   }
 
@@ -364,9 +371,9 @@
     S.screen = 'fatal';
     haptic.bad();
     setBackButton(false);
-    setHeader('bg_color');
+    setHeader();
     S.retry = retry;
-    stateScreen('😕', 'Что-то пошло не так', err.message || 'Не получилось открыть приложение.',
+    stateScreen('sad', 'Что-то пошло не так', err.message || 'Не получилось открыть приложение.',
       [{ act: 'retry', label: 'Попробовать ещё раз', icon: 'refresh' }]);
   }
 
@@ -375,29 +382,44 @@
     leaveScreen();
     S.screen = 'closed';
     setBackButton(false);
-    setHeader('bg_color');
+    setHeader();
     const buttons = [];
     if (accessWaUrl()) buttons.push({ act: 'wa-open', label: 'Написать в WhatsApp', icon: 'send' });
     buttons.push({ act: 'home', label: 'Проверить доступ', cls: 'ghost', icon: 'refresh' });
-    stateScreen('🔒', 'Бот работает по личным ссылкам', 'Ссылку на доступ вы получите после оплаты. Напишите нам, и мы вышлем её.', buttons);
+    stateScreen('lock', 'Бот работает по личным ссылкам', 'Ссылку на доступ вы получите после оплаты. Напишите нам, и мы вышлем её.', buttons);
     const box = $('.state');
     if (box) box.setAttribute('role', 'status');
   }
 
   /* ===================================================================== приветствие */
+  // Примеры настоящей книги: обложка (квадрат 720×720) и три широкие страницы 2:1 (1200×600)
+  const EXAMPLES_LABEL = 'Примеры книги про Артёма и динозаврика';
   const EXAMPLE = [
-    { img: '/static/img/ex-cover.jpg', alt: 'Обложка: мальчик в синей жилетке с карандашом на джайлоо', cover: true, title: 'Айдар и Золотой Конь', sub: 'Книга для Айдара' },
-    { img: '/static/img/ex-p1.jpg', alt: 'Мальчик читает книгу у юрты', text: 'Шестилетний Айдар жил в уютной юрте на красивом зелёном джайлоо. Больше всего на свете мальчик любил рисовать весёлые картинки и любоваться быстрыми лошадьми.' },
-    { img: '/static/img/ex-p3.jpg', alt: 'Мальчик и сурок на горной тропинке', text: 'Около горной тропинки Айдар встретил пушистого сурка. Зверёк сидел на камне и горько плакал, потому что потерял свой любимый круглый камушек.' },
-    { img: '/static/img/ex-p4.jpg', alt: 'Мальчик на бревенчатом мостике над ручьём', text: 'Путь лежал через узкий мостик над весёлым журчащим ручьём. Айдар смело зашагал вперёд, рассматривая цветы и бабочек вокруг.' },
+    { img: '/static/img/book-cover.jpg', w: 720, h: 720, cover: true, alt: 'Обложка книги «Артём и маленький Топик»: мальчик в синем свитере с рюкзаком и зелёный динозаврик в очках с печеньем в лапках' },
+    { img: '/static/img/book-p2.jpg', w: 1200, h: 600, alt: 'Артём присел у входа в лес рядом с зелёным динозавриком Топиком в очках', text: 'У входа в лес Артём присел рядом с Топиком. — Я помогу найти твою маму, пойдём вместе! Малыш вытер слёзы и кивнул. Теперь ему было не так грустно.' },
+    { img: '/static/img/book-p4.jpg', w: 1200, h: 600, alt: 'Артём и Топик держатся за руки и переходят мелкую горную речку', text: 'У реки Топик робко смотрел на воду. Артём взял его за лапку. — Здесь мелко, я рядом! Они медленно перешли реку и радостно выбрались на другой берег.' },
+    { img: '/static/img/book-p6.jpg', w: 1200, h: 600, alt: 'На вершине на закате Артём обнимает испуганного Топика', text: 'На вершине мамы не было видно, и Топик снова заплакал. Артём обнял его. — Мы её найдём! Он набрал побольше воздуха и громко позвал: «Мама Топика!»' },
   ];
+
+  function exampleRail() {
+    const cards = EXAMPLE.map((x, i) => {
+      const first = i === 0;
+      const img = '<img src="' + x.img + '" alt="' + esc(x.alt) + '" width="' + x.w + '" height="' + x.h + '" decoding="async"' + (first ? ' fetchpriority="high"' : ' loading="lazy"') + '>';
+      return x.cover
+        ? '<article class="ex cover-ex" aria-label="Обложка">' + img + '</article>'
+        : '<article class="ex page-ex" aria-label="Страница ' + (i + 1) + '">' + img + '<p>' + esc(x.text) + '</p></article>';
+    }).join('');
+    const pips = EXAMPLE.map((x, i) => '<button type="button" class="pip" data-act="rail-go" data-i="' + i + '" aria-label="Пример ' + (i + 1) + ' из ' + EXAMPLE.length + '"' + (i === 0 ? ' aria-current="true"' : '') + '></button>').join('');
+    return '<div class="showcase"><div class="rail" id="rail" tabindex="0" role="region" aria-roledescription="карусель" aria-label="' + EXAMPLES_LABEL + '">' + cards + '</div>' +
+      '<p class="cap">' + EXAMPLES_LABEL + '</p><div class="pips" role="group" aria-label="Выбор примера">' + pips + '</div></div>';
+  }
 
   function showWelcome() {
     leaveScreen();
     if (accessClosed()) { showClosed(); return; }
     S.screen = 'welcome';
     setBackButton(false);
-    setHeader(NIGHT);
+    setHeader();
     const c = S.cfg;
     const left = c.limits.remaining_today;
     const pills = [];
@@ -412,39 +434,77 @@
     const priceLine = closedMode
       ? 'Цена книги <b>' + esc(c.price_text) + '</b>. Ссылка на доступ приходит после оплаты.'
       : c.free_in_test
-      ? 'Книга стоит <b>' + esc(c.price_text) + '</b>. Сейчас тест — <b>бесплатно</b> 🎉 Осталось ' + left + ' из ' + c.limits.books_per_day + ' на сегодня.'
-      : 'Цена книги — <b>' + esc(c.price_text) + '</b>. Оплата переводом по QR-коду 💛';
-    const rail = EXAMPLE.map((x) => x.cover
-      ? '<article class="ex cover-ex"><img src="' + x.img + '" alt="' + esc(x.alt) + '" width="232" height="232" loading="lazy"><p>' + esc(x.title) + '<small>' + esc(x.sub) + '</small></p></article>'
-      : '<article class="ex"><img src="' + x.img + '" alt="' + esc(x.alt) + '" width="232" height="232" loading="lazy"><p>' + esc(x.text) + '</p></article>').join('');
-    const perk = (e, hue, b, d) => '<li><span class="e em" style="--hue:' + hue + '" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><span class="d">' + d + '</span></div></li>';
+      ? 'Книга стоит <b>' + esc(c.price_text) + '</b>. Сейчас тест — <b>бесплатно</b>. Осталось ' + left + ' из ' + c.limits.books_per_day + ' на сегодня.'
+      : 'Цена книги — <b>' + esc(c.price_text) + '</b>. Оплата переводом по QR-коду.';
+    const perk = (name, b, d) => '<li><span class="e" aria-hidden="true">' + icon(name) + '</span><div><b>' + b + '</b><span class="d">' + d + '</span></div></li>';
+    const startBtn = (extra) => '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + (extra || '') + '>' + icon('book') + 'Создать книгу</button>';
 
     app.innerHTML = '<section class="screen welcome">' +
-      '<header class="hero"><div class="hero-art">' + heroScene() + '</div>' +
-      '<div class="hero-text"><div class="pills">' + pills.join('') + '</div>' +
-      '<h1>Книга, где главный герой — ваш малыш ✨</h1>' +
-      '<p class="lead">Придумаем историю с добрым смыслом, нарисуем иллюстрации и пришлём красивую PDF-книгу прямо в Telegram.</p></div></header>' +
+      '<header class="hero"><div class="hero-top"><span class="logo"><span class="logo-mark" aria-hidden="true">' + icon('book') + '</span>Bala story</span>' +
+      (c.is_admin ? '<button type="button" class="btn ghost small admin-link" data-act="open-admin">' + icon('admin') + 'Админка</button>' : '') + '</div>' +
+      '<div class="pills">' + pills.join('') + '</div>' +
+      '<h1>Книга, где главный герой — <em>ваш малыш</em></h1>' +
+      '<p class="lead">Придумаем добрую историю, нарисуем страницы и пришлём PDF-книгу прямо в чат.</p>' +
+      exampleRail() +
+      '<div class="cta" id="hero-cta">' +
+      (left < 1 ? '<p class="form-error" role="alert">' + errorHtml('Лимит на сегодня исчерпан. Приходите завтра: малыша ждёт новая книга.') + '</p>' : '') +
+      startBtn() + '<p class="price-line">' + priceLine + '</p>' + credits + '</div></header>' +
       '<div class="sheet">' +
-      '<section class="block"><h2>Вот так выглядит книга 📖</h2><div class="rail" tabindex="0" aria-label="Страницы примера">' + rail + '</div>' +
-      '<p class="cap">Пример: книга для Айдара, шесть лет. Такую же вы получите для своего малыша.</p></section>' +
-      '<section class="block"><h2>Чем она особенная 💫</h2><ul class="perks">' +
-      perk('👶', '#7a5cff', 'Герой — ваш малыш', 'Имя, характер и увлечения вплетены в сюжет, а на картинках — похожая внешность') +
-      perk('💛', '#ffb020', 'Добрый смысл без нравоучений', 'Герой сам делает выбор — и ребёнок понимает, что такое доброта, честность и смелость') +
-      perk('🏔️', '#36d6a8', 'С любовью к Кыргызстану', 'Горы, джайлоо, юрта и Иссык-Куль. На русском или кыргызском') +
-      perk('🌙', '#5b8def', 'Исламский режим — по желанию', 'Скромная одежда героев, светлые традиции и никакой магии') +
+      '<section class="block"><h2>Чем она особенная</h2><ul class="perks">' +
+      perk('child', 'Герой — ваш малыш', 'Имя, характер и увлечения вплетены в сюжет, а на картинках — похожая внешность') +
+      perk('heart', 'Добрый смысл без нравоучений', 'Герой сам делает выбор — и ребёнок понимает, что такое доброта, честность и смелость') +
+      perk('mountains', 'С любовью к Кыргызстану', 'Горы, джайлоо, юрта и Иссык-Куль. На русском или кыргызском') +
+      perk('moon', 'Исламский режим — по желанию', 'Скромная одежда героев, светлые традиции и никакой магии') +
       '</ul></section>' +
-      '<section class="block"><h2>Как это работает 🧭</h2><ol class="timeline">' +
+      '<section class="block"><h2>Как это работает</h2><ol class="timeline">' +
       '<li><span class="n">1</span><div><b>Отвечаете на вопросы</b><span class="d">Пара минут: имя, возраст, любимое, характер, тема книги и пожелания</span></div></li>' +
       '<li><span class="n">2</span><div><b>Мы пишем и рисуем</b><span class="d">' + second + '</span></div></li>' +
-      '<li><span class="n">3</span><div><b>Получаете книгу в чат 💌</b><span class="d">Обложка, посвящение, ' + pagesCount() + ' ' + plural(pagesCount(), ['страница', 'страницы', 'страниц']) + ' с иллюстрациями во весь разворот и тёплое пожелание</span></div></li>' +
-      '</ol></section>' + (notice ? '<div class="block">' + notice + '</div>' : '') +
-      '<p class="price">' + priceLine + '</p>' + credits + '</div>' +
-      '<footer class="footer">' +
-      (left < 1 ? '<p class="form-error" role="alert">Лимит на сегодня исчерпан. Приходите завтра — малыша ждёт новая книга 🌙</p>' : '') +
-      '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + '>✨ Создать книгу</button>' +
-      (c.is_admin ? '<button type="button" class="btn ghost small admin-link" data-act="open-admin">' + icon('gear') + 'Админка</button>' : '') + '</footer>' +
+      '<li><span class="n">3</span><div><b>Получаете книгу в чат</b><span class="d">Обложка, посвящение, ' + pagesCount() + ' ' + plural(pagesCount(), ['страница', 'страницы', 'страниц']) + ' с иллюстрациями во весь разворот и тёплое пожелание</span></div></li>' +
+      '</ol></section>' + (notice ? '<div class="block">' + notice + '</div>' : '') + '</div>' +
+      '<div class="dock off" id="dock" aria-hidden="true">' + startBtn(' tabindex="-1"') + '</div>' +
       '</section>';
     window.scrollTo(0, 0);
+    bindWelcome();
+  }
+
+  /* карусель примеров: индикатор позиции и переход по точкам; нижняя кнопка появляется, когда главная ушла с экрана */
+  function bindWelcome() {
+    const rail = document.getElementById('rail');
+    if (rail) {
+      const cards = $$('.ex', rail), pips = $$('.pip');
+      let raf = 0;
+      const update = () => {
+        raf = 0;
+        const atEnd = rail.scrollLeft >= rail.scrollWidth - rail.clientWidth - 2;
+        let best = 0, dist = Infinity;
+        cards.forEach((card, i) => { const d = Math.abs(card.offsetLeft - rail.scrollLeft - 20); if (d < dist) { dist = d; best = i; } });
+        if (atEnd) best = cards.length - 1;
+        pips.forEach((p, i) => { if (i === best) p.setAttribute('aria-current', 'true'); else p.removeAttribute('aria-current'); });
+      };
+      rail.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(update); }, { passive: true });
+    }
+    const cta = $('#hero-cta .btn'), dock = document.getElementById('dock');
+    if (!cta || !dock) return;
+    const btn = $('button', dock);
+    const toggle = (visible) => {
+      dock.classList.toggle('off', !visible);
+      dock.setAttribute('aria-hidden', String(!visible));
+      if (btn) btn.tabIndex = visible ? 0 : -1;
+    };
+    if ('IntersectionObserver' in window) {
+      S.io = new IntersectionObserver((entries) => toggle(!entries[entries.length - 1].isIntersecting), { threshold: 0.4 });
+      S.io.observe(cta);
+    } else {
+      toggle(true);                                      // без IntersectionObserver нижняя кнопка видна всегда
+    }
+  }
+
+  function goToExample(el) {
+    const rail = document.getElementById('rail');
+    const card = rail && $$('.ex', rail)[Number(el.dataset.i)];
+    if (!card) return;
+    rail.scrollTo({ left: Math.max(0, card.offsetLeft - 20), behavior: reduceMotion ? 'auto' : 'smooth' });
+    haptic.select();
   }
 
   /* ===================================================================== мастер */
@@ -452,6 +512,11 @@
   const nameClean = () => S.a.name.trim().replace(/\s+/g, ' ');
   const nameOk = () => { const n = nameClean(); return n.length >= 1 && n.length <= 30 && NAME_RE.test(n); };
   const nameShown = () => esc(nameClean() || 'малыш');
+
+  // содержимое карточки-варианта: плитка с иконкой, название, пояснение и галочка выбора
+  function optionHtml(iconName, label, sub) {
+    return '<span class="e" aria-hidden="true">' + icon(iconName) + '</span><span class="t"><b>' + esc(label) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span>' + icon('check', 'tick');
+  }
 
   function choiceButtons(field, items, kind) {
     return items.map((it) => {
@@ -463,7 +528,7 @@
   const STEP = {
     name: {
       title: () => 'Как зовут нашего героя?',
-      hint: () => 'Мы вплетём имя в каждую страницу — малыш сразу узнает себя! 💛',
+      hint: () => 'Мы вплетём имя в каждую страницу — малыш сразу узнает себя!',
       body: () => '<label class="field"><span class="lbl" id="l-name">Имя малыша</span>' +
         '<input class="input" id="in-name" data-field="name" maxlength="30" autocomplete="off" autocapitalize="words" enterkeyhint="next" placeholder="Например, Айдар" aria-labelledby="l-name" aria-describedby="c-name" value="' + esc(S.a.name) + '"></label>' +
         '<div class="counter" id="c-name">' + S.a.name.length + '/30</div><p class="field-error" id="e-name" role="alert" hidden></p>',
@@ -476,7 +541,7 @@
       auto: true,
       body: () => '<div class="age-grid" role="radiogroup" aria-label="Возраст">' +
         choiceButtons('age', [3, 4, 5, 6, 7, 8, 9].map((n) => ({ id: n, html: n })), 'age') + '</div>' +
-        '<p class="age-note">Книги подходят детям от 3 до 9 лет 🌈</p>',
+        '<p class="age-note">Книги подходят детям от 3 до 9 лет.</p>',
       valid: () => S.a.age != null,
     },
     gender: {
@@ -485,8 +550,8 @@
       auto: true,
       body: () => '<div class="tiles" role="radiogroup" aria-label="Пол ребёнка">' +
         choiceButtons('gender', [
-          { id: 'boy', html: '<span class="big em" aria-hidden="true">👦</span><b>Мальчик</b>' },
-          { id: 'girl', html: '<span class="big em" aria-hidden="true">👧</span><b>Девочка</b>' },
+          { id: 'boy', html: '<span class="big" aria-hidden="true">' + icon('boy') + '</span><b>Мальчик</b>' },
+          { id: 'girl', html: '<span class="big" aria-hidden="true">' + icon('girl') + '</span><b>Девочка</b>' },
         ], 'tile') + '</div>',
       valid: () => !!S.a.gender,
     },
@@ -507,7 +572,7 @@
     },
     likes: {
       title: () => 'Что любит ' + nameShown() + '?',
-      hint: () => 'Выберите до 3 любимых занятий — они станут суперсилой героя 💪',
+      hint: () => 'Выберите до 3 любимых занятий — они станут суперсилой героя.',
       body: () => '<div class="chips-meta" id="m-likes"></div><div class="chips" id="chips-likes"></div>' +
         '<div class="add-row"><input class="input" id="in-like" maxlength="40" autocomplete="off" enterkeyhint="done" placeholder="Своё увлечение" aria-label="Своё увлечение"><button type="button" class="btn secondary small" data-act="like-add" id="b-like" disabled>' + icon('plus') + 'Добавить</button></div>',
       valid: () => S.a.likes.length >= 1,
@@ -526,8 +591,8 @@
       auto: true,
       body: () => '<div class="opts" role="radiogroup" aria-label="Место действия">' +
         choiceButtons('place', opts().places.map((p) => {
-          const m = PLACE_META[p.id] || PLACE_META.custom;
-          return { id: p.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(p.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
+          const m = PLACE_META[p.id] || { i: 'generic', sub: '' };
+          return { id: p.id, html: optionHtml(m.i, p.label, m.sub) };
         }), 'opt') + '</div><div id="custom-place"></div>',
       valid: () => !!S.a.place && (S.a.place !== 'custom' || S.a.place_custom.trim().length > 0),
       mount() { refreshCustom('place', false); },
@@ -538,8 +603,8 @@
       auto: true,
       body: () => '<div class="opts" role="radiogroup" aria-label="Ценность">' +
         choiceButtons('value', opts().values.map((v) => {
-          const m = VALUE_META[v.id] || VALUE_META.kindness;
-          return { id: v.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(v.label) + '</b><small>' + m.sub + '</small></span>' + icon('check', 'tick') };
+          const m = VALUE_META[v.id] || { i: 'generic', sub: '' };
+          return { id: v.id, html: optionHtml(m.i, v.label, m.sub) };
         }), 'opt') + '</div>',
       valid: () => !!S.a.value,
     },
@@ -549,8 +614,7 @@
       auto: true,
       body: () => '<div class="opts" role="radiogroup" aria-label="Тема книги">' +
         choiceButtons('topic', topicList().map((t) => {
-          const m = TOPIC_META[t.id] || { e: t.emoji || '✨', hue: '#7a5cff' };
-          return { id: t.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + m.e + '</span><span class="t"><b>' + esc(t.label) + '</b>' + (t.hint ? '<small>' + esc(t.hint) + '</small>' : '') + '</span>' + icon('check', 'tick') };
+          return { id: t.id, html: optionHtml(iconOf(TOPIC_ICON, t.id), t.label, t.hint) };
         }), 'opt') + '</div><div id="custom-topic"></div>',
       valid: () => !!S.a.topic && (S.a.topic !== 'custom' || S.a.topic_custom.trim().length > 0),
       mount() { refreshCustom('topic', false); },
@@ -562,8 +626,7 @@
       hint: () => 'Выберите, на что похоже. Герои будут похожи по духу, но свои: чужих мультперсонажей использовать нельзя',
       body: () => '<div class="opts" role="radiogroup" aria-label="Мир, который любит малыш">' +
         choiceButtons('world', worldList().map((w) => {
-          const m = WORLD_META[w.id] || { e: '✨', hue: '#7a5cff' };
-          return { id: w.id, html: '<span class="e em" style="--hue:' + m.hue + '" aria-hidden="true">' + esc(w.emoji || m.e) + '</span><span class="t"><b>' + esc(w.label) + '</b>' + (w.hint ? '<small>' + esc(w.hint) + '</small>' : '') + '</span>' + icon('check', 'tick') };
+          return { id: w.id, html: optionHtml(iconOf(WORLD_ICON, w.id), w.label, w.hint) };
         }), 'opt') + '</div><div id="custom-world" aria-live="polite"></div>' +
         '<label class="field tight cartoons"><span class="lbl" id="l-cart">Названия любимых мультиков или героев</span>' +
         '<input class="input" id="in-cart" data-field="cartoons" maxlength="' + cartoonsMax() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="l-cart" aria-describedby="n-cart c-cart" placeholder="например: Маша и Медведь, Фиксики" value="' + esc(S.a.cartoons) + '"></label>' +
@@ -573,15 +636,14 @@
       valid: () => true,
       mount() { refreshWorldNote(); const h = $('h1.q'); if (h) h.focus({ preventScroll: true }); },
     },
-    // Обязательный шаг с предвыбранным значением: повторное нажатие выбор не снимает; карточки покрупнее, слева цветной акцент-превью
+    // Обязательный шаг с предвыбранным значением: повторное нажатие выбор не снимает; карточки покрупнее, слева большая иконка стиля
     style: {
       title: () => 'В каком стиле рисуем книгу?',
       hint: () => 'Так будут выглядеть все картинки: от обложки до последней страницы.',
       auto: true,
       body: () => '<div class="opts styles" role="radiogroup" aria-label="Стиль картинок">' +
         choiceButtons('style', styleList().map((x) => {
-          const m = STYLE_META[x.id] || { e: '🖼️', hue: '#7a5cff' };
-          return { id: x.id, html: '<span class="e em sty sty-' + esc(x.id) + '" style="--hue:' + m.hue + '" aria-hidden="true">' + esc(x.emoji || m.e) + '</span><span class="t"><b>' + esc(x.label) + '</b>' + (x.hint ? '<small>' + esc(x.hint) + '</small>' : '') + '</span>' + icon('check', 'tick') };
+          return { id: x.id, html: optionHtml(iconOf(STYLE_ICON, x.id), x.label, x.hint) };
         }), 'opt style-opt') + '</div>',
       valid: () => !!stylePicked(),
     },
@@ -594,11 +656,11 @@
         '<div class="counter" id="c-req">' + S.a.request.length + '/' + requestMax() + '</div>' +
         '<p class="chips-meta ex-meta" id="l-ex">Нажмите, чтобы добавить в текст:</p>' +
         '<div class="chips ex-chips" id="chips-ex" role="group" aria-labelledby="l-ex">' + requestExamples().map((x, i) =>
-          '<button type="button" class="chip" data-act="req-example" data-i="' + i + '" aria-pressed="' + S.a.request.includes(x.text) + '"><span class="e em" aria-hidden="true">' + x.e + '</span>' + esc(x.label) + '</button>').join('') + '</div>' +
+          '<button type="button" class="chip" data-act="req-example" data-i="' + i + '" aria-pressed="' + S.a.request.includes(x.text) + '">' + icon(x.i) + esc(x.label) + '</button>').join('') + '</div>' +
         '<label class="field tight fav"><span class="lbl" id="l-fav">Любимые герои, животные, игрушки</span>' +
         '<input class="input" id="in-fav" data-field="favorites" maxlength="' + favoritesMax() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="l-fav" aria-describedby="c-fav" placeholder="например: зайчик, экскаватор, динозавр" value="' + esc(S.a.favorites) + '"></label>' +
         '<div class="counter" id="c-fav">' + S.a.favorites.length + '/' + favoritesMax() + '</div>' +
-        '<div class="notice" role="note"><span class="em" aria-hidden="true">🎭</span><span>Героев известных мультфильмов мы заменяем на похожих, но оригинальных персонажей.</span></div>',
+        '<div class="notice" role="note">' + icon('info') + '<span>Героев известных мультфильмов мы заменяем на похожих, но оригинальных персонажей.</span></div>',
       isEmpty: () => !S.a.request.trim() && !S.a.favorites.trim(),
       valid: () => true,
     },
@@ -607,9 +669,9 @@
       hint: () => 'Это по желанию — можно просто нажать «Дальше».',
       body: () => {
         const girl = S.a.gender === 'girl';
-        return '<div class="switch-row"><div class="t"><b id="sw-i">🌙 Исламские ценности</b><p>Скромная одежда героев на картинках, редкие слова «Бисмиллях» и «Альхамдулиллях», никакой магии и волшебных существ.</p></div>' +
+        return '<div class="switch-row"><div class="t"><b id="sw-i">' + icon('moon') + 'Исламские ценности</b><p>Скромная одежда героев на картинках, редкие слова «Бисмиллях» и «Альхамдулиллях», никакой магии и волшебных существ.</p></div>' +
           '<button type="button" class="switch" role="switch" aria-checked="' + S.a.islamic + '" aria-labelledby="sw-i" data-act="switch" data-field="islamic"></button></div>' +
-          (S.a.islamic && girl ? '<div class="switch-row"><div class="t"><b id="sw-h">🧕 Героиня в платке</b><p>Необязательно: на картинках героиня будет в платке.</p></div>' +
+          (S.a.islamic && girl ? '<div class="switch-row"><div class="t"><b id="sw-h">' + icon('girl') + 'Героиня в платке</b><p>Необязательно: на картинках героиня будет в платке.</p></div>' +
             '<button type="button" class="switch" role="switch" aria-checked="' + S.a.headscarf + '" aria-labelledby="sw-h" data-act="switch" data-field="headscarf"></button></div>' : '');
       },
       valid: () => true,
@@ -620,26 +682,26 @@
       auto: true,
       body: () => '<div class="tiles" role="radiogroup" aria-label="Язык книги">' +
         choiceButtons('language', [
-          { id: 'ru', html: '<span class="big em" aria-hidden="true">📗</span><b>Русский</b><small>Книга на русском</small>' },
-          { id: 'ky', html: '<span class="big em" aria-hidden="true">📘</span><b>Кыргызча</b><small>Китеп кыргызча</small>' },
+          { id: 'ru', html: '<span class="big" aria-hidden="true">' + icon('lang_ru') + '</span><b>Русский</b><small>Книга на русском</small>' },
+          { id: 'ky', html: '<span class="big" aria-hidden="true">' + icon('lang_ky') + '</span><b>Кыргызча</b><small>Китеп кыргызча</small>' },
         ], 'tile') + '</div>' +
-        '<p class="sum-note">Кыргызский текст пишет нейросеть, и пока в нём возможны неточности — его обязательно вычитывает носитель языка 🙏</p>',
+        '<p class="sum-note">Кыргызский текст пишет нейросеть, и пока в нём возможны неточности — его обязательно вычитывает носитель языка.</p>',
       valid: () => !!S.a.language,
     },
     dedication: {
       optional: true,
       title: () => 'Что напишем на странице посвящения?',
       hint: () => 'Страница будет называться «Для ' + nameShown() + '», а под ней — ваши тёплые слова.',
-      body: () => '<label class="field"><span class="lbl" id="l-ded">Посвящение</span><textarea class="textarea" id="in-ded" data-field="dedication" maxlength="120" rows="4" aria-labelledby="l-ded" aria-describedby="c-ded" placeholder="Например: Любимому сыну от мамы и папы 💛">' + esc(S.a.dedication) + '</textarea></label>' +
+      body: () => '<label class="field"><span class="lbl" id="l-ded">Посвящение</span><textarea class="textarea" id="in-ded" data-field="dedication" maxlength="120" rows="4" aria-labelledby="l-ded" aria-describedby="c-ded" placeholder="Например: Любимому сыну от мамы и папы">' + esc(S.a.dedication) + '</textarea></label>' +
         '<div class="counter" id="c-ded">' + S.a.dedication.length + '/120</div>',
       isEmpty: () => !S.a.dedication.trim(),
       valid: () => true,
       mount() { focusField('in-ded'); },
     },
     summary: {
-      title: () => 'Всё готово к созданию! 🎉',
+      title: () => 'Всё готово к созданию!',
       hint: () => 'Проверьте ответы — любой можно поправить.',
-      cta: () => '✨ Создать книгу',
+      cta: () => 'Создать книгу',
       body: () => summaryHtml(),
       valid: () => true,
     },
@@ -657,10 +719,10 @@
     const nm = nameClean() || 'малыш';
     const girl = S.a.gender === 'girl';
     return [
-      { e: '🚜', label: 'Экскаватор', text: 'Хочу, чтобы ' + nm + (girl ? ' водила экскаватор и помогала зайчику.' : ' водил экскаватор и помогал зайчику.') },
-      { e: '🦕', label: 'Динозавр', text: 'Пусть в книге будет большой добрый динозавр.' },
-      { e: '🪥', label: 'Зубки и врач', text: 'Про то, как ' + nm + ' чистит зубки и не боится идти к врачу.' },
-      { e: '👵', label: 'Бабушка', text: 'Пусть в книге будут бабушка с дедушкой и тёплые лепёшки.' },
+      { i: 'hardhat', label: 'Экскаватор', text: 'Хочу, чтобы ' + nm + (girl ? ' водила экскаватор и помогала зайчику.' : ' водил экскаватор и помогал зайчику.') },
+      { i: 'dino', label: 'Динозавр', text: 'Пусть в книге будет большой добрый динозавр.' },
+      { i: 'tooth', label: 'Зубки и врач', text: 'Про то, как ' + nm + ' чистит зубки и не боится идти к врачу.' },
+      { i: 'elder', label: 'Бабушка', text: 'Пусть в книге будут бабушка с дедушкой и тёплые лепёшки.' },
     ];
   }
 
@@ -725,26 +787,25 @@
     ];
     const left = S.cfg.limits.remaining_today;
     const warn = S.cfg.privacy_warning ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(S.cfg.privacy_warning) + '</span></div>' : '';
-    const promise = S.photo ? '<div class="notice promise" role="note"><span class="em" aria-hidden="true">🔒</span><b>' + esc(PHOTO_PROMISE) + '</b></div>' : '';
+    const promise = S.photo ? '<div class="notice promise" role="note">' + icon('lock') + '<b>' + esc(PHOTO_PROMISE) + '</b></div>' : '';
     const acc = S.cfg.access;
     const cost = acc && acc.closed && !isAdmin() && typeof acc.credits === 'number'
       ? 'Будет использована 1 книга по вашей ссылке (доступно: ' + acc.credits + '). '
       : (S.cfg.free_in_test ? 'Сейчас тест: книга бесплатна (осталось ' + left + ' из ' + S.cfg.limits.books_per_day + ' на сегодня). ' : 'Цена: ' + esc(S.cfg.price_text) + '. ');
     return warn + promise + '<ul class="summary">' + rows.filter((r) => S.steps.includes(r[0])).map((r) => {
-      const m = STEP_META[r[0]] || ['✨', '#7a5cff'];
-      return '<li><span class="e em" style="--hue:' + m[1] + '" aria-hidden="true">' + m[0] + '</span><span class="k">' + r[1] + '</span><span class="v' + (r[1] === 'Пожелания' || r[1] === 'Любимые мультики' ? ' clamp' : '') + '">' + esc(r[2]) + '</span>' +
+      return '<li><span class="e" aria-hidden="true">' + icon(iconOf(STEP_ICON, r[0])) + '</span><span class="k">' + r[1] + '</span><span class="v' + (r[1] === 'Пожелания' || r[1] === 'Любимые мультики' ? ' clamp' : '') + '">' + esc(r[2]) + '</span>' +
         '<button type="button" class="edit" data-act="edit" data-step="' + r[0] + '" aria-label="Изменить: ' + r[1] + '">Изменить</button></li>';
     }).join('') + '</ul>' +
-      '<p class="sum-note">' + cost + 'Готовую книгу пришлём в этот чат 💌</p>';
+      '<p class="sum-note">' + cost + 'Готовую книгу пришлём в этот чат.</p>';
   }
 
   /* --- чипы --- */
   function chipItems(kind) {
     if (kind === 'likes') {
       const preset = opts().likes;
-      return preset.concat(S.a.likes.filter((x) => !preset.includes(x))).map((x) => ({ id: x, label: x, e: LIKE_EMOJI[x] || '✨' }));
+      return preset.concat(S.a.likes.filter((x) => !preset.includes(x))).map((x) => ({ id: x, label: x, i: iconOf(LIKE_ICON, x, 'pencil') }));
     }
-    return opts().traits.map((t) => ({ id: t.id, label: traitLabel(t), e: TRAIT_EMOJI[t.id] || '⭐' }));
+    return opts().traits.map((t) => ({ id: t.id, label: traitLabel(t), i: iconOf(TRAIT_ICON, t.id, 'smile') }));
   }
 
   function refreshChips(kind) {
@@ -755,7 +816,7 @@
       const on = selected.includes(it.id);
       const dis = !on && selected.length >= 3;
       return '<button type="button" class="chip" data-act="toggle" data-kind="' + kind + '" data-id="' + esc(it.id) + '" aria-pressed="' + on + '"' + (dis ? ' aria-disabled="true"' : '') + '>' +
-        (on ? icon('check') : '<span class="e em" aria-hidden="true">' + it.e + '</span>') + esc(it.label) + '</button>';
+        (on ? icon('check') : icon(it.i)) + esc(it.label) + '</button>';
     }).join('');
     const meta = document.getElementById('m-' + kind);
     if (meta) meta.textContent = 'Выбрано ' + selected.length + ' из 3' + (selected.length >= 3 ? ' — нажмите на выбранное, чтобы убрать' : '');
@@ -808,7 +869,7 @@
     if (!box) return;
     if (S.a.world !== 'custom') { box.innerHTML = ''; return; }
     if (!box.firstChild) {
-      box.innerHTML = '<div class="notice world-note" role="note"><span class="em" aria-hidden="true">✏️</span><span>Свой мир можно описать словами на шаге «Что ещё добавить?»</span></div>';
+      box.innerHTML = '<div class="notice world-note" role="note">' + icon('pencil') + '<span>Свой мир можно описать словами на шаге «Что ещё добавить?»</span></div>';
     }
   }
 
@@ -816,13 +877,13 @@
   function refreshPhoto() {
     const box = document.getElementById('photo-box');
     if (!box) return;
-    const note = '<p class="privacy-note"><span class="em" aria-hidden="true">🔒</span> ' + esc(PHOTO_PROMISE) + '</p>';
+    const note = '<p class="privacy-note">' + icon('lock') + '<span>' + esc(PHOTO_PROMISE) + '</span></p>';
     if (!S.photo) {
-      box.innerHTML = '<div class="photo-btns"><label class="photo-pick" for="file-cam" tabindex="0"><span class="big em" aria-hidden="true">📸</span>Сфотографировать</label>' +
-        '<label class="photo-pick alt" for="file" tabindex="0"><span class="big em" aria-hidden="true">🖼️</span>Выбрать из галереи</label></div>' +
+      box.innerHTML = '<div class="photo-btns"><label class="photo-pick" for="file-cam" tabindex="0"><span class="big" aria-hidden="true">' + icon('camera') + '</span>Сфотографировать</label>' +
+        '<label class="photo-pick alt" for="file" tabindex="0"><span class="big" aria-hidden="true">' + icon('image') + '</span>Выбрать из галереи</label></div>' +
         '<input type="file" class="vh" id="file-cam" accept="image/*" capture="user"><input type="file" class="vh" id="file" accept="image/*">' + note;
     } else {
-      box.innerHTML = '<div class="photo-prev"><img src="' + S.photoUrl + '" alt="Выбранное фото"><div class="t">Фото добавлено 👍</div><button type="button" class="btn ghost small" data-act="photo-remove">Убрать</button></div>' +
+      box.innerHTML = '<div class="photo-prev"><img src="' + S.photoUrl + '" alt="Выбранное фото"><div class="t">' + icon('done') + 'Фото добавлено</div><button type="button" class="btn ghost small" data-act="photo-remove">' + icon('trash') + 'Убрать</button></div>' +
         '<label class="check-row"><input type="checkbox" id="consent" data-field="photo_consent"' + (S.a.photo_consent ? ' checked' : '') + '><span>Я родитель и согласен(на) на обработку фото для создания книги</span></label>' + note;
     }
     updateFooter();
@@ -909,18 +970,17 @@
   function renderStep(dir) {
     leaveScreen();
     S.screen = 'wizard';
-    setHeader('bg_color');
+    setHeader();
     const id = S.steps[S.idx];
     const st = STEP[id];
     const total = S.steps.length;
-    const meta = STEP_META[id] || ['✨', '#7a5cff'];
     normalize();
     const segs = S.steps.map((_, i) => '<i class="' + (i < S.idx ? 'on' : (i === S.idx ? 'now' : '')) + '"></i>').join('');
     app.innerHTML = '<section class="screen wizard" data-step="' + id + '">' +
       '<header class="topbar"><button type="button" class="back" data-act="back">' + icon('back') + 'Назад</button>' +
       '<span class="step-count">Шаг ' + (S.idx + 1) + ' из ' + total + '</span></header>' +
       '<div class="seg" role="progressbar" aria-label="Шаг ' + (S.idx + 1) + ' из ' + total + '" aria-valuemin="1" aria-valuemax="' + total + '" aria-valuenow="' + (S.idx + 1) + '">' + segs + '</div>' +
-      '<main class="main enter-' + (dir || 'fwd') + '"><div class="sticker em" style="--hue:' + meta[1] + '" aria-hidden="true">' + meta[0] + '</div>' +
+      '<main class="main enter-' + (dir || 'fwd') + '"><div class="sticker" aria-hidden="true">' + icon(iconOf(STEP_ICON, id)) + '</div>' +
       '<h1 class="q" tabindex="-1">' + st.title() + '</h1>' +
       '<p class="hint">' + st.hint() + '</p><div class="body">' + st.body() + '</div></main>' +
       '<footer class="footer"><p class="form-error" id="form-error" role="alert" hidden></p>' +
@@ -939,13 +999,13 @@
     const st = STEP[S.steps[S.idx]];
     const skip = st.optional && st.isEmpty && st.isEmpty();
     btn.disabled = !st.valid();
-    btn.innerHTML = st.cta ? esc(st.cta()) : (skip ? 'Пропустить' : 'Дальше') + icon('arrow');
+    btn.innerHTML = st.cta ? icon('book') + esc(st.cta()) : (skip ? 'Пропустить' : 'Дальше') + icon('arrow');
     hideFormError();
   }
 
   function showFormError(text) {
     const el = document.getElementById('form-error');
-    if (el) { el.textContent = text; el.hidden = false; }
+    if (el) { el.innerHTML = errorHtml(text); el.hidden = false; }
     haptic.bad();
   }
   function hideFormError() { const el = document.getElementById('form-error'); if (el) el.hidden = true; }
@@ -1058,13 +1118,13 @@
   const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', place: 'place', place_custom: 'place', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', cartoons: 'world', style: 'style', request: 'extras', favorites: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
 
   /* ===================================================================== ожидание */
-  const STAGES = [['✍️', 'Пишу книгу'], ['🖌️', 'Рисую обложку'], ['🎨', 'Иллюстрации'], ['📖', 'Собираю книгу']];
+  const STAGES = [['pencil', 'Пишу книгу'], ['image', 'Рисую обложку'], ['palette', 'Иллюстрации'], ['book', 'Собираю книгу']];
   const TIPS = {
-    '-1': ['Вы в очереди — скоро начнём 🌟', 'Совсем чуть-чуть, и мы возьмёмся за дело ✨'],
-    0: ['Подбираю самые тёплые слова 💛', 'Придумываю, как герой сделает правильный выбор 🧭', 'Выбираю добрый и интересный сюжет 🌙', 'Проверяю, чтобы у книги был светлый конец ✨'],
-    1: ['Рисую героя с любовью 🎨', 'Выбираю самые тёплые краски для обложки 🌅'],
-    2: ['Раскрашиваю горы и джайлоо 🏔️', 'Дорисовываю улыбку нашему герою 😊', 'Расставляю звёзды по местам ⭐', 'Добавляю в картинки уютные детали 🏕️'],
-    3: ['Складываю страницы в красивую книгу 📖', 'Почти готово — проверяю каждую страницу 🔍'],
+    '-1': ['Вы в очереди — скоро начнём', 'Совсем чуть-чуть, и мы возьмёмся за дело'],
+    0: ['Подбираю самые тёплые слова', 'Придумываю, как герой сделает правильный выбор', 'Выбираю добрый и интересный сюжет', 'Проверяю, чтобы у книги был светлый конец'],
+    1: ['Рисую героя с любовью', 'Выбираю самые тёплые краски для обложки'],
+    2: ['Раскрашиваю горы и джайлоо', 'Дорисовываю улыбку нашему герою', 'Расставляю краски по местам', 'Добавляю в картинки уютные детали'],
+    3: ['Складываю страницы в красивую книгу', 'Почти готово — проверяю каждую страницу'],
   };
 
   function rowHtml(key, label) {
@@ -1088,16 +1148,16 @@
     S.stage = 0;
     S.tipIndex = 0;
     setBackButton(false);
-    setHeader('bg_color');
-    const eta = S.cfg.mock ? 'В тестовом режиме это быстрее минуты.' : 'Обычно 5–15 минут. Можно закрыть приложение — PDF придёт в чат 💌';
+    setHeader();
+    const eta = S.cfg.mock ? 'В тестовом режиме это быстрее минуты.' : 'Обычно 5–15 минут. Можно закрыть приложение — PDF придёт в чат.';
     const rows = rowHtml('cover', 'Обложка') + Array.from({ length: pagesCount() }, (_, i) => rowHtml('p' + (i + 1), 'Страница ' + (i + 1))).join('');
     app.innerHTML = '<section class="screen wait">' +
-      '<div class="scene">' + bookScene() + '</div>' +
-      '<h1>Пишем вашу книгу ✍️</h1><p class="tip" id="tip" aria-live="polite">' + TIPS[0][0] + '</p>' +
+      '<div class="scene">' + waitArt() + '</div>' +
+      '<h1>Пишем вашу книгу</h1><p class="tip" id="tip" aria-live="polite">' + TIPS[0][0] + '</p>' +
       '<div class="bar" role="progressbar" aria-label="Готовность книги" aria-valuemin="0" aria-valuemax="100" aria-valuenow="2"><i></i></div>' +
-      '<ol class="stages">' + STAGES.map((s, i) => '<li data-stage="' + i + '"><span class="dot">' + icon('check') + '</span><span class="em" aria-hidden="true">' + s[0] + '</span><span class="lbl">' + s[1] + '</span></li>').join('') + '</ol>' +
-      '<p class="stay">' + eta + '</p>' +
-      '<div id="conn"></div><h2 class="sub">Страницы появляются по мере готовности 👇</h2><ul class="preview">' + rows + '</ul></section>';
+      '<ol class="stages">' + STAGES.map((s, i) => '<li data-stage="' + i + '"><span class="dot">' + icon('check') + '</span><span class="si" aria-hidden="true">' + icon(s[0]) + '</span><span class="lbl">' + s[1] + '</span></li>').join('') + '</ol>' +
+      '<p class="stay">' + icon('clock') + '<span>' + eta + '</span></p>' +
+      '<div id="conn"></div><h2 class="sub">Страницы появляются по мере готовности</h2><ul class="preview">' + rows + '</ul></section>';
     if (!reduceMotion) S.tipTimer = setInterval(rotateTip, 4600);
     S.pollId += 1;
     poll(S.pollId);
@@ -1179,9 +1239,9 @@
     S.screen = 'order-error';
     haptic.bad();
     setBackButton(false);
-    setHeader('bg_color');
+    setHeader();
     const detail = o.error_detail ? '<details><summary>Подробности для администратора</summary><pre>' + esc(o.error_detail) + '</pre></details>' : '';
-    stateScreen('😔', 'Ой, книга не получилась', o.error || 'Что-то пошло не так. Попробуйте ещё раз через несколько минут.',
+    stateScreen('sad', 'Ой, книга не получилась', o.error || 'Что-то пошло не так. Попробуйте ещё раз через несколько минут.',
       [{ act: 'retry-order', label: 'Попробовать ещё раз', icon: 'refresh' }, { act: 'home', label: 'Вернуться в начало', cls: 'ghost' }], detail);
   }
 
@@ -1246,7 +1306,7 @@
   }
 
   function deliveryHtml(o) {
-    if (o.delivered === true) return '<p class="status" id="status">' + icon('check') + 'PDF уже в вашем чате 💌</p>';
+    if (o.delivered === true) return '<p class="status" id="status">' + icon('check') + 'PDF уже в вашем чате</p>';
     if (o.delivered === false) {
       const bot = S.cfg.bot_username ? '<button type="button" class="btn secondary small" data-act="open-bot">Открыть бота</button>' : '';
       return '<div class="status warn" id="status"><div class="row">' + icon('warn') + '<span>PDF не отправился в чат: возможно, вы ещё не запускали бота. Скачайте файл кнопкой внизу или запустите бота (/start) и повторите отправку.</span></div>' +
@@ -1258,7 +1318,7 @@
   function printHtml() {
     const p = printCfg();
     if (!p) return '';
-    return '<section class="print" id="print-offer"><div class="print-head"><span class="big em" aria-hidden="true">🎁</span><h2>' + esc(p.title || 'Хотите заказать печатную версию?') + '</h2></div>' +
+    return '<section class="print" id="print-offer"><div class="print-head"><span class="big" aria-hidden="true">' + icon('book') + '</span><h2>' + esc(p.title || 'Хотите заказать печатную версию?') + '</h2></div>' +
       '<ul class="print-rows"><li><b>' + esc(p.pdf_price || S.cfg.price_text) + '</b> — PDF</li>' +
       '<li><b>' + esc(p.print_price) + '</b> — мягкая фотокнига 21×21 см</li></ul>' +
       (p.whatsapp_url ? '<button type="button" class="btn" data-act="print-order">' + icon('send') + 'Заказать в WhatsApp</button>' : '') + '</section>';
@@ -1266,14 +1326,14 @@
 
   function feedbackHtml() {
     const f = S.fb;
-    if (f.sent) return '<section class="feedback" id="feedback"><p class="thanks"><span class="big em" aria-hidden="true">💛</span>Спасибо! Ваш отзыв помогает книгам становиться лучше.</p></section>';
+    if (f.sent) return '<section class="feedback" id="feedback"><p class="thanks"><span class="big" aria-hidden="true">' + icon('heart') + '</span>Спасибо! Ваш отзыв помогает книгам становиться лучше.</p></section>';
     const price = esc(S.cfg.price_text);
-    return '<section class="feedback" id="feedback"><h2>Как вам книга? 💬</h2>' +
+    return '<section class="feedback" id="feedback"><h2>Как вам книга?</h2>' +
       '<div class="rate" role="radiogroup" aria-label="Оценка">' +
-      '<button type="button" class="opt" role="radio" aria-checked="' + (f.rating === 'up') + '" data-act="fb-rate" data-v="up"><span class="big em" aria-hidden="true">😍</span><b>Понравилась</b></button>' +
-      '<button type="button" class="opt" role="radio" aria-checked="' + (f.rating === 'down') + '" data-act="fb-rate" data-v="down"><span class="big em" aria-hidden="true">😕</span><b>Не понравилась</b></button></div>' +
+      '<button type="button" class="opt" role="radio" aria-checked="' + (f.rating === 'up') + '" data-act="fb-rate" data-v="up"><span class="big" aria-hidden="true">' + icon('smile') + '</span><b>Понравилась</b></button>' +
+      '<button type="button" class="opt" role="radio" aria-checked="' + (f.rating === 'down') + '" data-act="fb-rate" data-v="down"><span class="big" aria-hidden="true">' + icon('sad') + '</span><b>Не понравилась</b></button></div>' +
       '<label class="field"><span class="lbl" id="l-fb">Комментарий (необязательно)</span><textarea class="textarea" id="fb-comment" maxlength="1000" rows="3" aria-labelledby="l-fb" placeholder="Что понравилось или что можно улучшить?">' + esc(f.comment) + '</textarea></label>' +
-      '<p class="buy" id="l-buy">Купили бы такую книгу за ' + price + '? 🛒</p>' +
+      '<p class="buy" id="l-buy">Купили бы такую книгу за ' + price + '?</p>' +
       '<div class="buy-row" role="radiogroup" aria-labelledby="l-buy">' + [['yes', 'Да'], ['maybe', 'Возможно'], ['no', 'Нет']].map((x) =>
         '<button type="button" class="chip" role="radio" aria-checked="' + (f.would_pay === x[0]) + '" data-act="fb-buy" data-v="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>' +
       '<p class="form-error" id="fb-error" role="alert" hidden></p>' +
@@ -1284,7 +1344,7 @@
     if (reduceMotion) return;
     const box = $('.confetti');
     if (!box) return;
-    const colors = ['#ffc24d', '#ff7b6b', '#6b4cff', '#36d6a8', '#ff9ccf', '#3fa9f5'];
+    const colors = ['#5b45e0', '#ffd3a3', '#b9aef2', '#ff9d6b', '#e4defd', '#8f7cf0'];
     for (let i = 0; i < 46; i++) {
       const p = document.createElement('i');
       p.style.cssText = 'left:' + (Math.random() * 100).toFixed(1) + '%;width:' + (6 + Math.random() * 6).toFixed(1) + 'px;height:' + (9 + Math.random() * 9).toFixed(1) + 'px;background:' + colors[i % colors.length] +
@@ -1301,19 +1361,19 @@
     S.order = o;
     S.fb = { rating: null, would_pay: null, comment: '', sent: false };
     setBackButton(false);
-    setHeader('bg_color');
+    setHeader();
     haptic.ok();
     const count = 2 + o.pages.length + 1;
     app.innerHTML = '<section class="screen result"><div class="confetti" aria-hidden="true"></div>' +
-      '<header class="r-head"><h1>Ура! Книга готова 🎉</h1><p class="bt">' + esc(o.book.title) + '</p>' + deliveryHtml(o) + '</header>' +
+      '<header class="r-head"><div class="done" aria-hidden="true">' + icon('done') + '</div><h1>Ура! Книга готова</h1><p class="bt">' + esc(o.book.title) + '</p>' + deliveryHtml(o) + '</header>' +
       '<div class="pager-wrap"><div class="pager-nav"><button type="button" class="pn" data-act="pager-prev" aria-label="Предыдущая страница">' + icon('back') + '</button>' +
       '<span class="count" id="pager-count" aria-live="polite">1 / ' + count + '</span>' +
       '<button type="button" class="pn" data-act="pager-next" aria-label="Следующая страница">' + icon('next') + '</button></div>' +
       '<div class="pager" id="pager" tabindex="0" role="region" aria-roledescription="карусель" aria-label="Страницы книги">' + slidesHtml(o) + '</div>' +
       '<p class="pager-cap">В PDF страница идёт разворотом: картинка на оба листа, текст на ней.</p></div>' +
       printHtml() + feedbackHtml() +
-      '<button type="button" class="btn secondary again" data-act="again">🎁 Сделать ещё одну, для брата или сестры</button>' +
-      '<footer class="footer"><button type="button" class="btn gold" data-act="download">' + icon('download') + 'Скачать PDF</button></footer></section>';
+      '<button type="button" class="btn secondary again" data-act="again">' + icon('gift') + 'Сделать ещё одну, для брата или сестры</button>' +
+      '<footer class="footer"><button type="button" class="btn" data-act="download">' + icon('download') + 'Скачать PDF</button></footer></section>';
     bindPager(count);
     window.scrollTo(0, 0);
     confetti();
@@ -1394,7 +1454,7 @@
     } catch (e) {
       btn.classList.remove('busy'); btn.disabled = false;
       const err = document.getElementById('fb-error');
-      err.textContent = e.message; err.hidden = false;
+      err.innerHTML = errorHtml(e.message); err.hidden = false;
       haptic.bad();
     }
   }
@@ -1434,7 +1494,7 @@
     S.pollId += 1;                      // опрос экрана ожидания больше не нужен
     const token = S.payId;
     setBackButton(false);
-    setHeader('bg_color');
+    setHeader();
     if (!order) {
       try { order = await api('/api/orders/' + encodeURIComponent(orderId)); }
       catch (e) { if (S.screen === 'pay' && token === S.payId) showFatal(e, () => boot()); return; }
@@ -1452,21 +1512,21 @@
       ? '<button type="button" class="qr-card" data-act="qr-zoom" aria-label="Увеличить QR-код"><img class="qr" src="' + esc(pay.qr_url) + '" alt="QR-код для оплаты" width="240" height="240"></button>'
       : '<div class="qr-card empty"><p>QR-код пока не загружен. Напишите нам, и мы всё подключим.</p></div>';
     const state = sent
-      ? '<div class="pay-state" role="status"><span class="em big" aria-hidden="true">⏳</span><div><b>Чек получен — проверяем оплату</b><span>Обычно это занимает несколько минут. Как только мы подтвердим, книга начнёт создаваться, а в чат придёт сообщение. Приложение можно закрыть 💌</span></div></div>'
+      ? '<div class="pay-state" role="status"><span class="big" aria-hidden="true">' + icon('clock') + '</span><div><b>Чек получен — проверяем оплату</b><span>Обычно это занимает несколько минут. Как только мы подтвердим, книга начнёт создаваться, а в чат придёт сообщение. Приложение можно закрыть.</span></div></div>'
       : '';
     app.innerHTML = '<section class="screen pay">' +
-      '<header class="pay-head"><span class="em big" aria-hidden="true">🪙</span><h1>Оплата книги</h1>' +
+      '<header class="pay-head"><span class="big" aria-hidden="true">' + icon('card') + '</span><h1>Оплата книги</h1>' +
       '<p>Книга для ' + esc(pay.child) + ' — <b>' + esc(pay.price_text) + '</b></p></header>' +
       '<div class="pay-body">' + note + state + (sent ? '' : qr) +
       (sent ? '' : '<p class="amount">К оплате: <b>' + esc(pay.price_text) + '</b></p>') +
       (sent || !pay.qr_url ? '' : '<button type="button" class="btn secondary small qr-save" data-act="qr-save">' + icon('download') + 'Сохранить QR в телефон</button>') +
       (sent ? '' : '<ol class="pay-steps"><li><span class="n">1</span><span>' + esc(pay.instructions) + '</span></li>' +
         '<li><span class="n">2</span><span>Переведите точную сумму и сделайте скриншот или фото чека.</span></li>' +
-        '<li><span class="n">3</span><span>Нажмите «Отправить чек» внизу. Мы проверим оплату и сразу начнём писать книгу ✨</span></li></ol>') +
+        '<li><span class="n">3</span><span>Нажмите «Отправить чек» внизу. Мы проверим оплату и сразу начнём писать книгу.</span></li></ol>') +
       '</div>' +
       '<footer class="footer"><p class="form-error" id="pay-error" role="alert" hidden></p>' +
       '<input type="file" class="vh" id="receipt-file" accept="image/*">' +
-      (pay.qr_url ? '<label class="btn" id="receipt-btn" for="receipt-file" tabindex="0">' + icon('clip') + (sent ? 'Отправить другой чек' : 'Отправить чек') + '</label>' : '') +
+      (pay.qr_url ? '<label class="btn" id="receipt-btn" for="receipt-file" tabindex="0">' + icon('receipt') + (sent ? 'Отправить другой чек' : 'Отправить чек') + '</label>' : '') +
       '<button type="button" class="btn ghost small cancel-link" data-act="cancel-unpaid">Отменить заказ</button></footer></section>';
     window.scrollTo(0, 0);
     payPoll(token, pay);
@@ -1487,7 +1547,7 @@
 
   function showPayError(text) {
     const el = document.getElementById('pay-error');
-    if (el) { el.textContent = text; el.hidden = false; }
+    if (el) { el.innerHTML = errorHtml(text); el.hidden = false; }
     haptic.bad();
   }
 
@@ -1552,7 +1612,7 @@
     S.screen = 'admin';
     if (tab) S.adminTab = tab;
     setBackButton(true);
-    setHeader('bg_color');
+    setHeader();
     if (!S.admin) app.innerHTML = '<div class="boot"><i aria-label="Загрузка"></i></div>';
     await loadAdmin();
     if (S.screen !== 'admin') return;
@@ -1589,7 +1649,7 @@
     const keep = quiet ? window.scrollY : 0;
     const tabs = [['checks', 'Чеки', a.pending.length], ['invites', 'Ссылки', 0], ['settings', 'Настройки', 0]].map((t) =>
       '<button type="button" role="tab" aria-selected="' + (S.adminTab === t[0]) + '" data-act="admin-tab" data-tab="' + t[0] + '">' + t[1] + (t[2] ? '<b class="n">' + t[2] + '</b>' : '') + '</button>').join('');
-    app.innerHTML = '<section class="screen admin"><header class="a-head"><h1>' + icon('gear') + 'Админка</h1>' +
+    app.innerHTML = '<section class="screen admin"><header class="a-head"><h1>' + icon('admin') + 'Админка</h1>' +
       '<p>' + (closedOn(a.settings) ? 'Бот <b class="on">закрыт</b>: книги выдаются по личным ссылкам' : 'Бот <b class="off">открыт для всех</b>') + '</p>' +
       '<p>' + (a.settings.enabled && a.settings.has_qr ? 'Приём оплаты <b class="on">включён</b>' : 'Приём оплаты <b class="off">выключен</b>' + (closedOn(a.settings) ? '' : ': книги сейчас бесплатные')) +
       ' · подтверждено за сутки: ' + a.paid_today + '</p></header>' +
@@ -1603,14 +1663,14 @@
       '<article class="rcard" data-id="' + esc(p.id) + '">' +
       (p.receipt_url ? '<button type="button" class="rimg" data-act="zoom-img" data-src="' + esc(p.receipt_url) + '" aria-label="Открыть чек"><img src="' + esc(p.receipt_url) + '" alt="Чек" loading="lazy"></button>' : '') +
       '<div class="rmeta"><b>' + esc(p.user) + (p.username ? ' <small>@' + esc(p.username) + '</small>' : '') + '</b>' +
-      '<span>Книга для ' + esc(p.child) + '</span><span class="ago">Чек ' + esc(ago(p.receipt_at)) + '</span></div>' +
+      '<span>Книга для ' + esc(p.child) + '</span><span class="ago">' + icon('receipt') + 'Чек ' + esc(ago(p.receipt_at)) + '</span></div>' +
       '<div class="ract"><button type="button" class="btn small" data-act="approve" data-id="' + esc(p.id) + '">' + icon('check') + 'Подтвердить</button>' +
       '<button type="button" class="btn small secondary" data-act="reject-open" data-id="' + esc(p.id) + '">Отклонить</button></div>' +
       '<div class="reject" hidden><div class="chips">' + ['Сумма не совпадает', 'Платёж не найден', 'Чек не читается'].map((r) =>
         '<button type="button" class="chip" data-act="reject-reason" data-text="' + esc(r) + '">' + esc(r) + '</button>').join('') + '</div>' +
       '<input class="input" type="text" maxlength="200" placeholder="Причина (покупатель её увидит)" aria-label="Причина отказа">' +
       '<button type="button" class="btn small danger" data-act="reject" data-id="' + esc(p.id) + '">Отправить отказ</button></div></article>').join('');
-    const empty = '<div class="a-empty"><span class="em big" aria-hidden="true">🌿</span><p>Новых чеков нет. Как только покупатель отправит чек, он появится здесь и придёт вам в чат.</p></div>';
+    const empty = '<div class="a-empty"><span class="big" aria-hidden="true">' + icon('leaf') + '</span><p>Новых чеков нет. Как только покупатель отправит чек, он появится здесь и придёт вам в чат.</p></div>';
     const waiting = a.awaiting.length
       ? '<h2 class="a-sub">Ещё не прислали чек (' + a.awaiting.length + ')</h2><ul class="mini">' + a.awaiting.map((p) =>
         '<li><div><b>' + esc(p.user) + '</b><span>' + esc(p.child) + ' · ' + esc(ago(p.created_at)) + (p.pay_note ? ' · отказ: ' + esc(p.pay_note) : '') + '</span></div>' +
@@ -1632,9 +1692,9 @@
   function adminInvites() {
     const iv = S.inv;
     const fresh = iv.fresh
-      ? '<div class="link-card" role="status"><b>Ссылка создана ✨</b><p class="url" id="inv-url">' + esc(iv.fresh.url) + '</p>' +
-        '<div class="btnrow"><button type="button" class="btn small" data-act="inv-copy">Скопировать</button>' +
-        '<button type="button" class="btn small secondary" data-act="inv-share">Отправить</button></div></div>' : '';
+      ? '<div class="link-card" role="status"><b>' + icon('done') + 'Ссылка создана</b><p class="url" id="inv-url">' + esc(iv.fresh.url) + '</p>' +
+        '<div class="btnrow"><button type="button" class="btn small" data-act="inv-copy">' + icon('copy') + 'Скопировать</button>' +
+        '<button type="button" class="btn small secondary" data-act="inv-share">' + icon('share') + 'Отправить</button></div></div>' : '';
     let rows;
     if (iv.list === null) rows = '<p class="a-hint">Загружаю список…</p>';
     else if (!iv.list.length) rows = '<p class="a-hint">' + (iv.listError ? esc(iv.listError) : 'Ссылок пока нет. Создайте первую выше.') + '</p>';
@@ -1642,7 +1702,7 @@
       const used = inv.used_by !== null && inv.used_by !== undefined;
       return '<li' + (used ? ' class="used"' : '') + '><div><b>' + esc(inv.note || 'без заметки') + '</b><span>' + esc(inviteMeta(inv)) + '</span></div>' +
         (used ? '' : '<div class="btnrow">' +
-          (inv.url ? '<button type="button" class="btn small secondary" data-act="inv-copy" data-url="' + esc(inv.url) + '">' + icon('clip') + 'Скопировать</button>' : '') +
+          (inv.url ? '<button type="button" class="btn small secondary" data-act="inv-copy" data-url="' + esc(inv.url) + '">' + icon('copy') + 'Скопировать</button>' : '') +
           '<button type="button" class="btn small secondary" data-act="inv-revoke" data-token="' + esc(inv.token) + '">Отозвать</button></div>') + '</li>';
     }).join('') + '</ul>';
     return '<div class="set">' +
@@ -1652,8 +1712,8 @@
       '<output class="val" id="inv-credits" aria-live="polite">' + iv.credits + '</output>' +
       '<button type="button" class="pn" data-act="inv-plus" aria-label="Больше"' + (iv.credits >= 5 ? ' disabled' : '') + '>' + icon('plus') + '</button></div></div>' +
       '<label class="field"><span class="lbl" id="l-inv-note">Заметка (видите только вы)</span><input class="input" id="inv-note" type="text" maxlength="80" autocomplete="off" aria-labelledby="l-inv-note" placeholder="Для кого, например: Айгуль, Instagram" value="' + esc(iv.note) + '"></label>' +
-      '<p class="form-error" id="inv-error" role="alert"' + (iv.error ? '' : ' hidden') + '>' + esc(iv.error) + '</p>' +
-      '<button type="button" class="btn" data-act="inv-create" id="inv-create">Создать ссылку</button></div>' +
+      '<p class="form-error" id="inv-error" role="alert"' + (iv.error ? '' : ' hidden') + '>' + (iv.error ? errorHtml(iv.error) : '') + '</p>' +
+      '<button type="button" class="btn" data-act="inv-create" id="inv-create">' + icon('link') + 'Создать ссылку</button></div>' +
       fresh + '<h2 class="a-sub">Созданные ссылки</h2>' + rows;
   }
 
@@ -1675,7 +1735,7 @@
       haptic.bad();
       S.inv.error = e.message;                       // например, 409, если бот не запущен
       btn.classList.remove('busy'); btn.disabled = false;
-      if (err) { err.textContent = e.message; err.hidden = false; }
+      if (err) { err.innerHTML = errorHtml(e.message); err.hidden = false; }
     }
   }
 
@@ -1703,7 +1763,7 @@
     if (!url) return;
     const ok = await copyText(url);
     if (ok) haptic.ok(); else haptic.bad();
-    showAdminToast(ok ? 'Ссылка скопирована ✓' : 'Не получилось скопировать. Ссылка: ' + url);
+    showAdminToast(ok ? 'Ссылка скопирована' : 'Не получилось скопировать. Ссылка: ' + url);
   }
 
   function shareInvite() {
@@ -1733,9 +1793,9 @@
       ? '<div class="qr-card small"><img class="qr" src="' + esc(st.qr_url) + '" alt="Текущий QR-код" width="180" height="180"></div>'
       : '<div class="qr-card empty small"><p>QR-код ещё не загружен</p></div>';
     return '<div class="set">' +
-      '<div class="switch-row"><div class="t"><b id="sw-closed">🔒 Закрытый бот</b><p>Книги создают только по личным ссылкам из вкладки «Ссылки». Вам доступ открыт всегда.</p></div>' +
+      '<div class="switch-row"><div class="t"><b id="sw-closed">' + icon('lock') + 'Закрытый бот</b><p>Книги создают только по личным ссылкам из вкладки «Ссылки». Вам доступ открыт всегда.</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-closed" aria-checked="' + closedOn(st) + '" data-act="closed-switch"></button></div>' +
-      '<div class="switch-row"><div class="t"><b id="sw-pay">💳 Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, книга создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
+      '<div class="switch-row"><div class="t"><b id="sw-pay">' + icon('qr') + 'Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, книга создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-pay" aria-checked="' + !!st.enabled + '" data-act="pay-switch"' + (st.has_qr ? '' : ' disabled') + '></button></div>' +
       '<h2 class="a-sub">Ваш QR-код</h2>' + qr +
       '<input type="file" class="vh" id="qr-file" accept="image/*">' +
@@ -1744,8 +1804,8 @@
       '<label class="field"><span class="lbl">Цена печатной книги</span><input class="input" id="set-print" type="text" maxlength="40" value="' + esc(st.print_price || '') + '" placeholder="1 290 сом"></label>' +
       '<label class="field"><span class="lbl">Номер WhatsApp</span><input class="input" id="set-wa" type="tel" inputmode="numeric" maxlength="20" value="' + esc(st.whatsapp || '') + '" placeholder="996555123456" aria-describedby="h-wa"><span class="help" id="h-wa">Номер с кодом страны, например 996555123456. На него придут заказы печатной версии; пустое поле скрывает предложение печати.</span></label>' +
       '<label class="field"><span class="lbl">Подсказка для покупателя</span><textarea class="textarea" id="set-text" maxlength="400" rows="4" placeholder="' + esc(st.default_instructions) + '">' + esc(st.instructions) + '</textarea></label>' +
-      '<p class="form-error" id="set-error" role="alert" hidden></p><p class="saved" id="set-saved" role="status" hidden>Сохранено ✓</p>' +
-      '<button type="button" class="btn" data-act="settings-save">Сохранить настройки</button></div>';
+      '<p class="form-error" id="set-error" role="alert" hidden></p><p class="saved" id="set-saved" role="status" hidden>' + icon('check') + 'Сохранено</p>' +
+      '<button type="button" class="btn" data-act="settings-save">' + icon('check') + 'Сохранить настройки</button></div>';
   }
 
   async function adminAction(path, body) {
@@ -1793,7 +1853,7 @@
       const saved = document.getElementById('set-saved'); if (saved) saved.hidden = false;
     } catch (e) {
       btn.classList.remove('busy'); btn.disabled = false;
-      err.textContent = e.message; err.hidden = false; haptic.bad();
+      err.innerHTML = errorHtml(e.message); err.hidden = false; haptic.bad();
       const ids = { price_text: 'set-price', print_price: 'set-print', whatsapp: 'set-wa', instructions: 'set-text' };
       $$('.set .invalid').forEach((x) => x.classList.remove('invalid'));
       const bad = e.data && ids[e.data.field] && document.getElementById(ids[e.data.field]);
@@ -1876,6 +1936,7 @@
     'reject-reason': (el) => { const input = $('input', el.closest('.reject')); input.value = el.dataset.text; haptic.select(); },
     reject: rejectPayment,
     'zoom-img': (el) => zoomReceipt(el.dataset.src),
+    'rail-go': goToExample,
     'pay-switch': (el) => { S.admin.settings.enabled = !S.admin.settings.enabled; el.setAttribute('aria-checked', String(S.admin.settings.enabled)); haptic.select(); },
     'settings-save': saveAdminSettings,
   };

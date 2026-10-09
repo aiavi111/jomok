@@ -28,7 +28,7 @@ UI language Russian (Kyrgyz book text supported). Must follow Telegram theme var
 Name «Персональная сказка». Existing logo files live in branding/ (night-sky yurt). The owner dislikes the current look: violet gradient buttons, emoji used as icons, identical rounded plates, and the current scene illustrations («как у ИИ»). The result must not feel childish and must not look like everyone else's template; it needs real Kyrgyz character. Everything else may be replaced.
 
 ## Evidence on Hand
-Real generated example pages in webapp/img (ex-cover.jpg, ex-p1.jpg, ex-p3.jpg, ex-p4.jpg). No testimonials, customer counts, or press: none may be invented.
+Real example book «Артём и маленький Топик» in webapp/img (book-cover.jpg, book-p2.jpg, book-p4.jpg, book-p6.jpg); the child's photo is used with the owner's consent. No testimonials, customer counts, or press: none may be invented.
 
 ## Product Principles
 1. The parent should finish in under two minutes: one question per screen, nothing decorative that slows a tap.
