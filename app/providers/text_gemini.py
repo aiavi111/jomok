@@ -43,7 +43,7 @@ def _retryable(resp: httpx.Response) -> bool:
     return (_retry_delay_from_error(resp) or 0) <= 120
 
 
-def explain_error(resp: httpx.Response, model: str) -> ProviderError:
+def explain_error(resp: httpx.Response, model: str, model_var: str = "GEMINI_MODEL") -> ProviderError:
     status = resp.status_code
     text = error_text(resp)
     low = text.lower()
@@ -54,14 +54,14 @@ def explain_error(resp: httpx.Response, model: str) -> ProviderError:
         return ProviderError(f"Gemini не пускает с этим ключом (403): {text}. Проверьте, что в проекте Google "
                              "включён Gemini API и ключ не ограничен по адресам.", fatal=True, status=status)
     if status == 404:
-        return ProviderError(f"Модель «{model}» не найдена в Gemini. Проверьте строку GEMINI_MODEL в .env. "
+        return ProviderError(f"Модель «{model}» не найдена в Gemini. Проверьте строку {model_var} в .env. "
                              "Список доступных моделей покажет python check_keys.py.", fatal=True, status=status)
     if status == 429:
         wait = _retry_delay_from_error(resp)
         if wait is not None and wait <= 120 and "perday" not in low.replace(" ", ""):
             return ProviderError("Gemini временно ограничил частоту запросов. Попробуйте через минуту.", status=status)
         return ProviderError("Закончился дневной лимит бесплатного тарифа Gemini (или он равен нулю для этой модели). "
-                             "Подождите до завтра, выберите другую модель в GEMINI_MODEL или подключите оплату "
+                             f"Подождите до завтра, выберите другую модель в {model_var} или подключите оплату "
                              "в aistudio.google.com.", fatal=True, status=status)
     if status >= 500:
         return ProviderError(f"Сервис Gemini сейчас недоступен ({status}). Попробуйте через несколько минут.", status=status)
@@ -72,9 +72,11 @@ class GeminiTextProvider(TextProvider):
     polish = True
     name = "gemini"
 
-    def __init__(self, api_key: str, model: str, *, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, api_key: str, model: str, *, proof_model: str = "",
+                 transport: httpx.AsyncBaseTransport | None = None):
         self.api_key = api_key
         self.model = model.removeprefix("models/")
+        self.proof_model = proof_model.removeprefix("models/")
         self._transport = transport
 
     def _body(self, system: str, messages: list[tuple[str, str]]) -> dict:
@@ -87,8 +89,10 @@ class GeminiTextProvider(TextProvider):
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": MAX_OUTPUT_TOKENS},
         }
 
-    async def _complete(self, system: str, messages: list[tuple[str, str]]) -> str:
-        url = f"{BASE}/models/{self.model}:generateContent"
+    async def _complete(self, system: str, messages: list[tuple[str, str]], model: str | None = None) -> str:
+        """model — другая модель только на этот запрос (вычитка кыргызского, TEXT_PROOF_MODEL)."""
+        used = (model or self.model).removeprefix("models/")
+        url = f"{BASE}/models/{used}:generateContent"
         async with httpx.AsyncClient(timeout=TEXT_TIMEOUT, transport=self._transport) as client:
             resp = await request_with_retries(
                 client, "POST", url, provider="Gemini",
@@ -97,7 +101,7 @@ class GeminiTextProvider(TextProvider):
                 retryable=_retryable,
             )
         if resp.status_code != 200:
-            raise explain_error(resp, self.model)
+            raise explain_error(resp, used, "TEXT_PROOF_MODEL" if model else "GEMINI_MODEL")
         data = json_body(resp)
         candidates = data.get("candidates") or []
         if not candidates:

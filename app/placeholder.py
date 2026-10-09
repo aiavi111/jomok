@@ -1,4 +1,4 @@
-"""Картинка-заглушка (Pillow): акварельный пейзаж с подписью и кратким описанием сцены.
+"""Картинка-заглушка (Pillow): яркий мультяшный пейзаж с подписью и кратким описанием сцены.
 
 Используется mock-провайдером и как запасная иллюстрация, если страница не нарисовалась.
 """
@@ -28,7 +28,7 @@ def _hsv(h: float, s: float, v: float) -> tuple[int, int, int]:
 
 
 def draw_placeholder(label: str, description: str, seed_text: str = "", *, caption: str | None = None) -> bytes:
-    """Возвращает JPEG 1024×1024. label — «Обложка» / «Страница 3», description — описание сцены."""
+    """Возвращает квадратный JPEG 1024×1024. label — «Обложка» / «Страница 3», description — описание сцены."""
     rnd = random.Random(int(hashlib.sha1((seed_text or description or label).encode()).hexdigest()[:12], 16))
     size = FINAL * SCALE
     base_hue = rnd.random()
@@ -36,7 +36,7 @@ def draw_placeholder(label: str, description: str, seed_text: str = "", *, capti
     px = ImageDraw.Draw(img)
 
     # небо: вертикальный градиент
-    top, bottom = _hsv(base_hue, 0.30, 0.98), _hsv(base_hue + 0.08, 0.12, 1.0)
+    top, bottom = _hsv(base_hue, 0.55, 1.0), _hsv(base_hue + 0.08, 0.18, 1.0)
     for y in range(size):
         t = y / size
         px.line([(0, y), (size, y)], fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
@@ -56,7 +56,7 @@ def draw_placeholder(label: str, description: str, seed_text: str = "", *, capti
     horizon = int(size * .62)
     for layer in range(3):
         hue = base_hue + 0.02 * layer
-        color = _hsv(hue + .55, 0.30 + .10 * layer, 0.82 - .12 * layer)
+        color = _hsv(hue + .55, 0.45 + .12 * layer, 0.92 - .12 * layer)
         base_y = horizon + layer * int(size * .05)
         pts = [(0, size)]
         x = 0
@@ -67,7 +67,7 @@ def draw_placeholder(label: str, description: str, seed_text: str = "", *, capti
         px.polygon(pts, fill=color)
 
     # луг
-    px.rectangle([0, int(size * .78), size, size], fill=_hsv(0.28 + rnd.random() * .05, 0.35, 0.80))
+    px.rectangle([0, int(size * .78), size, size], fill=_hsv(0.28 + rnd.random() * .05, 0.55, 0.88))
     # юрта: купол, стены, дверь
     yx, yy, yw = rnd.randint(int(size * .12), int(size * .6)), int(size * .74), int(size * .17)
     px.rectangle([yx, yy, yx + yw, yy + int(yw * .5)], fill=(250, 244, 230))

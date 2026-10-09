@@ -3,6 +3,7 @@
     python setup_bot.py           # описание, «о боте», команды и кнопка меню
     python setup_bot.py --name    # ещё и имя бота (Telegram ограничивает, как часто можно менять имя)
 
+Имя бота: «Bala story bot» (BOT_NAME в app/bot.py).
 Аватарку (логотип) через API поставить нельзя: загрузите её в @BotFather командой /setuserpic.
 Те же настройки (кроме имени) бот ставит сам при каждом запуске сервера.
 """
@@ -35,7 +36,7 @@ async def main(with_name: bool) -> int:
         await runtime.setup_profile(include_name=with_name)
         print(f"  ✔ описание ({len(DESCRIPTION)} из 512 символов)")
         print(f"  ✔ «о боте» ({len(SHORT_DESCRIPTION)} из 120 символов)")
-        print("  ✔ команды: /start, /help" + (" (и /id только в вашем чате)" if settings.admin_chat_id else ""))
+        print("  ✔ команды: /start, /help" + (" (и /admin, /id только в вашем чате)" if settings.admin_chat_id else ""))
         if with_name:
             print(f"  ✔ имя: {BOT_NAME}")
         await runtime.setup_menu_button()

@@ -4,11 +4,13 @@
 Покупатель платит у себя в банковском приложении и присылает фото чека. Владелец сверяет поступление и нажимает
 «Подтвердить» — только после этого заказ уходит в генерацию. Платёжных систем здесь нет: деньги идут прямо владельцу.
 Настройки лежат в SQLite (таблица settings), QR — файлом в папке данных, поэтому меняются без перезапуска.
+Здесь же живут номер WhatsApp владельца и цена печатной книги: от них зависит предложение «заказать печать».
 """
 from __future__ import annotations
 
 import io
 import logging
+import re
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -21,6 +23,9 @@ log = logging.getLogger(__name__)
 DEFAULT_INSTRUCTIONS = ("Откройте банковское приложение, отсканируйте QR-код и переведите точную сумму. "
                         "Потом нажмите кнопку «Отправить чек» и приложите скриншот или фото чека.")
 MAX_PRICE_LEN = 40
+DEFAULT_PRINT_PRICE = "1 290 сом"
+WHATSAPP_MIN_DIGITS, WHATSAPP_MAX_DIGITS = 9, 15      # номер с кодом страны, без «+» (как в ссылке wa.me)
+_PHONE_SEPARATORS = re.compile(r"[\s+\-().]")
 MAX_INSTRUCTIONS_LEN = 400
 MAX_SIDE_QR = 1400
 MAX_SIDE_RECEIPT = 1600
@@ -73,29 +78,59 @@ class PaymentDesk:
     def instructions(self) -> str:
         return self.db.get_setting("pay_instructions", "") or DEFAULT_INSTRUCTIONS
 
+    def whatsapp(self) -> str:
+        """Номер WhatsApp владельца: только цифры с кодом страны; пусто — предложение печати выключено."""
+        return self.db.get_setting("pay_whatsapp", "") or ""
+
+    def print_price(self) -> str:
+        return self.db.get_setting("pay_print_price", "") or DEFAULT_PRINT_PRICE
+
     def settings(self) -> dict:
         return {"enabled": self.enabled(), "price_text": self.price_text(), "instructions": self.instructions(),
-                "has_qr": self.has_qr(), "default_instructions": DEFAULT_INSTRUCTIONS}
+                "has_qr": self.has_qr(), "default_instructions": DEFAULT_INSTRUCTIONS,
+                "whatsapp": self.whatsapp(), "print_price": self.print_price()}
+
+    @staticmethod
+    def parse_whatsapp(value) -> str:
+        """«+996 555 12-34-56» -> «996555123456». Пусто допустимо (выключает предложение печати)."""
+        raw = str(value if value is not None else "").strip()
+        digits = _PHONE_SEPARATORS.sub("", raw)
+        if raw and not (digits.isascii() and digits.isdigit() and WHATSAPP_MIN_DIGITS <= len(digits) <= WHATSAPP_MAX_DIGITS):
+            raise ValidationError(f"WhatsApp: номер с кодом страны, от {WHATSAPP_MIN_DIGITS} до {WHATSAPP_MAX_DIGITS} цифр, "
+                                  "например 996555123456.", field="whatsapp")
+        return digits
 
     def update(self, data: dict) -> dict:
+        """Сначала проверяются все поля, потом записываются: при ошибке в одном поле не меняется ничего."""
         if not isinstance(data, dict):
             raise ValidationError("Настройки пришли в неверном виде.")
+        changes: dict[str, str] = {}
         if "price_text" in data:
             price = " ".join(str(data["price_text"] or "").split())
             if not price or len(price) > MAX_PRICE_LEN:
-                raise ValidationError(f"Цена: от 1 до {MAX_PRICE_LEN} символов, например «499 сом».", field="price_text")
-            self.db.set_setting("pay_price", price)
+                raise ValidationError(f"Цена: от 1 до {MAX_PRICE_LEN} символов, например «590 сом».", field="price_text")
+            changes["pay_price"] = price
+        if "print_price" in data:
+            price = " ".join(str(data["print_price"] or "").split())
+            if not price or len(price) > MAX_PRICE_LEN:
+                raise ValidationError(f"Цена печатной книги: от 1 до {MAX_PRICE_LEN} символов, например «{DEFAULT_PRINT_PRICE}».",
+                                      field="print_price")
+            changes["pay_print_price"] = price
+        if "whatsapp" in data:
+            changes["pay_whatsapp"] = self.parse_whatsapp(data["whatsapp"])
         if "instructions" in data:
             text = str(data["instructions"] or "").strip()
             if len(text) > MAX_INSTRUCTIONS_LEN:
                 raise ValidationError(f"Подсказка для покупателя: не длиннее {MAX_INSTRUCTIONS_LEN} символов.",
                                       field="instructions")
-            self.db.set_setting("pay_instructions", text)
+            changes["pay_instructions"] = text
         if "enabled" in data:
             want = data["enabled"] in (True, 1, "1", "true")
             if want and not self.has_qr():
                 raise ValidationError("Сначала загрузите QR-код, потом включайте приём оплаты.", field="enabled")
-            self.db.set_setting("pay_enabled", "1" if want else "0")
+            changes["pay_enabled"] = "1" if want else "0"
+        for key, value in changes.items():
+            self.db.set_setting(key, value)
         return self.settings()
 
     def save_qr(self, raw: bytes) -> None:

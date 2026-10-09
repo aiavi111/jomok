@@ -9,6 +9,7 @@ import story_preview
 from app.logging_setup import redact
 from app.providers import http as http_mod
 from app.providers.text_gemini import GeminiTextProvider
+from app.story import PAGES
 
 from .conftest import SAMPLE, make_settings
 from .test_providers import GEMINI_KEY, Recorder, gemini_reply, jr
@@ -29,7 +30,7 @@ def test_preview_with_mock_prints_title_pages_moral_and_wish(tmp_path):
     lines, out = collect()
     code = run(story_preview.preview(make_settings(tmp_path), SAMPLE, out=out))
     text = "\n".join(lines)
-    assert code == 0 and "Страница 8" in text and "Мораль:" in text and "Пожелание:" in text
+    assert code == 0 and f"Страница {PAGES}" in text and "Мораль:" in text and "Пожелание:" in text
     assert "[сцена для художника]" not in text
     lines2, out2 = collect()
     run(story_preview.preview(make_settings(tmp_path), SAMPLE, full=True, out=out2))

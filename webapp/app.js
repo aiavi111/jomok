@@ -85,6 +85,7 @@
     clip: '<path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 17a1.6 1.6 0 0 1-2.3-2.3L15 7.5"/>',
     gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>',
     upload: '<path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19.5h14"/>',
+    minus: '<path d="M5 12h14"/>',
   };
   function icon(name, cls) {
     return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
@@ -227,6 +228,7 @@
     orderId: null, order: null, pollId: 0, pollFails: 0, stage: 0, tipTimer: null, tipIndex: 0,
     fb: { rating: null, would_pay: null, comment: '', sent: false },
     adminTab: 'checks', admin: null, adminTimer: null, payTimer: null, payId: 0,
+    inv: { credits: 1, note: '', list: null, error: '', fresh: null }, closedWa: null,
   };
 
   const opts = () => S.cfg.options;
@@ -236,6 +238,20 @@
     const p = opts().places.find((x) => x.id === S.a.place);
     return p ? p.label : '';
   };
+
+  // Доступ и печать: бэкенд мог ещё не прислать новые поля, поэтому всё читается осторожно
+  const isAdmin = () => !!(S.cfg && (S.cfg.is_admin || (S.cfg.access && S.cfg.access.is_admin)));
+  const accessClosed = () => !!(S.cfg && S.cfg.access && S.cfg.access.granted === false && !isAdmin());
+  const printCfg = () => (S.cfg && S.cfg.print && S.cfg.print.enabled ? S.cfg.print : null);
+  // ссылка «хочу получить доступ» (не та же, что print.whatsapp_url: у них разные сообщения владельцу)
+  const accessWaUrl = () => (S.cfg && S.cfg.access_whatsapp_url) || S.closedWa || null;
+  const PHOTO_PROMISE = 'После создания книги фото ребёнка автоматически удаляются, не позднее чем через 24 часа.';
+
+  function openExternal(url) {
+    if (!url) return;
+    try { if (tg && tg.openLink) { tg.openLink(url); return; } } catch (e) { /* откроем обычной ссылкой */ }
+    window.open(url, '_blank');
+  }
 
   function leaveScreen() {
     clearInterval(S.tipTimer);
@@ -281,6 +297,20 @@
       [{ act: 'retry', label: 'Попробовать ещё раз', icon: 'refresh' }]);
   }
 
+  // Закрытый бот: создавать книгу можно только по личной ссылке
+  function showClosed() {
+    leaveScreen();
+    S.screen = 'closed';
+    setBackButton(false);
+    setHeader('bg_color');
+    const buttons = [];
+    if (accessWaUrl()) buttons.push({ act: 'wa-open', label: 'Написать в WhatsApp', icon: 'send' });
+    buttons.push({ act: 'home', label: 'Проверить доступ', cls: 'ghost', icon: 'refresh' });
+    stateScreen('🔒', 'Бот работает по личным ссылкам', 'Ссылку на доступ вы получите после оплаты. Напишите нам, и мы вышлем её.', buttons);
+    const box = $('.state');
+    if (box) box.setAttribute('role', 'status');
+  }
+
   /* ===================================================================== приветствие */
   const EXAMPLE = [
     { img: '/static/img/ex-cover.jpg', alt: 'Обложка: мальчик в синей жилетке с карандашом на джайлоо', cover: true, title: 'Айдар и Золотой Конь', sub: 'Сказка для Айдара' },
@@ -291,6 +321,7 @@
 
   function showWelcome() {
     leaveScreen();
+    if (accessClosed()) { showClosed(); return; }
     S.screen = 'welcome';
     setBackButton(false);
     setHeader(NIGHT);
@@ -302,7 +333,12 @@
     const second = c.mock ? 'В тестовом режиме — быстрее минуты' : 'Обычно 5–15 минут, приложение можно закрыть';
     const notice = c.privacy_warning
       ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(c.privacy_warning) + '</span></div>' : '';
-    const priceLine = c.free_in_test
+    const closedMode = !!(c.access && c.access.closed);
+    const credits = closedMode && c.access.granted && !isAdmin() && typeof c.access.credits === 'number'
+      ? '<p class="credits-line">Доступно книг: <b>' + c.access.credits + '</b></p>' : '';
+    const priceLine = closedMode
+      ? 'Цена книги <b>' + esc(c.price_text) + '</b>. Ссылка на доступ приходит после оплаты.'
+      : c.free_in_test
       ? 'Книга стоит <b>' + esc(c.price_text) + '</b>. Сейчас тест — <b>бесплатно</b> 🎉 Осталось ' + left + ' из ' + c.limits.books_per_day + ' на сегодня.'
       : 'Цена книги — <b>' + esc(c.price_text) + '</b>. Оплата переводом по QR-коду 💛';
     const rail = EXAMPLE.map((x) => x.cover
@@ -329,7 +365,7 @@
       '<li><span class="n">2</span><div><b>Мы пишем и рисуем</b><span class="d">' + second + '</span></div></li>' +
       '<li><span class="n">3</span><div><b>Получаете книгу в чат 💌</b><span class="d">Обложка, посвящение, 8 страниц с иллюстрациями и тёплое пожелание</span></div></li>' +
       '</ol></section>' + (notice ? '<div class="block">' + notice + '</div>' : '') +
-      '<p class="price">' + priceLine + '</p></div>' +
+      '<p class="price">' + priceLine + '</p>' + credits + '</div>' +
       '<footer class="footer">' +
       (left < 1 ? '<p class="form-error" role="alert">Лимит на сегодня исчерпан. Приходите завтра — малыша ждёт новая сказка 🌙</p>' : '') +
       '<button type="button" class="btn" data-act="start"' + (left < 1 ? ' disabled' : '') + '>✨ Создать сказку</button>' +
@@ -505,13 +541,17 @@
     ];
     const left = S.cfg.limits.remaining_today;
     const warn = S.cfg.privacy_warning ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(S.cfg.privacy_warning) + '</span></div>' : '';
-    return warn + '<ul class="summary">' + rows.map((r) => {
+    const promise = S.photo ? '<div class="notice promise" role="note"><span class="em" aria-hidden="true">🔒</span><b>' + esc(PHOTO_PROMISE) + '</b></div>' : '';
+    const acc = S.cfg.access;
+    const cost = acc && acc.closed && !isAdmin() && typeof acc.credits === 'number'
+      ? 'Будет использована 1 книга по вашей ссылке (доступно: ' + acc.credits + '). '
+      : (S.cfg.free_in_test ? 'Сейчас тест: книга бесплатна (осталось ' + left + ' из ' + S.cfg.limits.books_per_day + ' на сегодня). ' : 'Цена: ' + esc(S.cfg.price_text) + '. ');
+    return warn + promise + '<ul class="summary">' + rows.map((r) => {
       const m = STEP_META[r[0]] || ['✨', '#7a5cff'];
       return '<li><span class="e em" style="--hue:' + m[1] + '" aria-hidden="true">' + m[0] + '</span><span class="k">' + r[1] + '</span><span class="v">' + esc(r[2]) + '</span>' +
         '<button type="button" class="edit" data-act="edit" data-step="' + r[0] + '" aria-label="Изменить: ' + r[1] + '">Изменить</button></li>';
     }).join('') + '</ul>' +
-      '<p class="sum-note">' + (S.cfg.free_in_test ? 'Сейчас тест: книга бесплатна (осталось ' + left + ' из ' + S.cfg.limits.books_per_day + ' на сегодня). ' : 'Цена: ' + esc(S.cfg.price_text) + '. ') +
-      'Готовую книгу пришлём в этот чат 💌</p>';
+      '<p class="sum-note">' + cost + 'Готовую книгу пришлём в этот чат 💌</p>';
   }
 
   /* --- чипы --- */
@@ -574,7 +614,7 @@
   function refreshPhoto() {
     const box = document.getElementById('photo-box');
     if (!box) return;
-    const note = '<p class="privacy-note">Фото используется только для этой книги: его получает сервис, который рисует иллюстрации. Мы удаляем фото сразу после создания книги 🔒</p>';
+    const note = '<p class="privacy-note"><span class="em" aria-hidden="true">🔒</span> ' + esc(PHOTO_PROMISE) + '</p>';
     if (!S.photo) {
       box.innerHTML = '<div class="photo-btns"><label class="photo-pick" for="file-cam" tabindex="0"><span class="big em" aria-hidden="true">📸</span>Сфотографировать</label>' +
         '<label class="photo-pick alt" for="file" tabindex="0"><span class="big em" aria-hidden="true">🖼️</span>Выбрать из галереи</label></div>' +
@@ -713,7 +753,7 @@
 
   function onBackButton() {
     if (S.screen === 'wizard') back();
-    else if (S.screen === 'admin') { haptic.tap(); showWelcome(); }
+    else if (S.screen === 'admin') { haptic.tap(); refreshConfig().then(showWelcome); }
   }
 
   function pick(el) {
@@ -762,9 +802,18 @@
       }
       haptic.ok();
       S.cfg.limits.remaining_today = Math.max(0, S.cfg.limits.remaining_today - 1);
+      if (S.cfg.access && typeof S.cfg.access.credits === 'number' && !isAdmin()) S.cfg.access.credits = Math.max(0, S.cfg.access.credits - 1);
       if (res.status === 'awaiting_payment') { showPay(res.order_id); return; }
       showWait(res.order_id);
     } catch (e) {
+      if (e.status === 403 && e.code === 'closed') {
+        haptic.bad();
+        S.closedWa = (e.data && e.data.whatsapp_url) || null;
+        await refreshConfig();
+        if (S.cfg.access) S.cfg.access.granted = false;
+        showClosed();
+        return;
+      }
       if (e.status === 409 && e.data && e.data.order_id) { showWait(e.data.order_id); return; }
       btn.classList.remove('busy');
       updateFooter();
@@ -787,6 +836,19 @@
     3: ['Складываю страницы в красивую книгу 📖', 'Почти готово — проверяю каждую страницу 🔍'],
   };
 
+  function rowHtml(key, label) {
+    return '<li class="prow" data-k="' + key + '"><div class="thumb shimmer"></div><div class="pt"><b>' + label + '</b><div class="skels"><span class="skel"></span><span class="skel s"></span></div></div></li>';
+  }
+
+  // число страниц берём из ответа сервера (обычно 8): лишние строки убираем, недостающие добавляем
+  function syncRows(n) {
+    const list = $('.preview');
+    if (!list) return;
+    const have = $$('.prow', list).length - 1;
+    for (let i = have + 1; i <= n; i++) list.insertAdjacentHTML('beforeend', rowHtml('p' + i, 'Страница ' + i));
+    for (let i = have; i > n; i--) { const row = $('.prow[data-k="p' + i + '"]', list); if (row) row.remove(); }
+  }
+
   function showWait(orderId) {
     leaveScreen();
     S.screen = 'wait';
@@ -797,8 +859,7 @@
     setBackButton(false);
     setHeader('bg_color');
     const eta = S.cfg.mock ? 'В тестовом режиме это быстрее минуты.' : 'Обычно 5–15 минут. Можно закрыть приложение — PDF придёт в чат 💌';
-    const rows = ['Обложка'].concat([1, 2, 3, 4, 5, 6, 7, 8].map((n) => 'Страница ' + n)).map((label, i) =>
-      '<li class="prow" data-k="' + (i === 0 ? 'cover' : 'p' + i) + '"><div class="thumb shimmer"></div><div class="pt"><b>' + label + '</b><div class="skels"><span class="skel"></span><span class="skel s"></span></div></div></li>').join('');
+    const rows = rowHtml('cover', 'Обложка') + [1, 2, 3, 4, 5, 6, 7, 8].map((n) => rowHtml('p' + n, 'Страница ' + n)).join('');
     app.innerHTML = '<section class="screen wait">' +
       '<div class="scene">' + bookScene() + '</div>' +
       '<h1>Пишем вашу сказку ✍️</h1><p class="tip" id="tip" aria-live="polite">' + TIPS[0][0] + '</p>' +
@@ -859,6 +920,7 @@
     const first = $('.stages li[data-stage="0"] .lbl');
     if (first) first.textContent = p.stage === -1 ? 'Жду очереди…' : STAGES[0][1];
     // обложка и страницы: текст сразу после написания, картинка — когда нарисована
+    if (o.pages && o.pages.length) syncRows(o.pages.length);
     fillRow('cover', o.cover_url, o.title ? o.title : null);
     (o.pages || []).forEach((page, i) => fillRow('p' + (i + 1), page.image_url, page.text));
   }
@@ -893,18 +955,33 @@
   }
 
   /* ===================================================================== результат */
+  /* Книга в приложении повторяет PDF: бумага, золотые линии, квадратные картинки; на телефоне страницы идут по одному квадрату */
+  const HEART = '<svg class="heart" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21.2C7 17.6 2.6 13.9 2.6 9.2c0-2.8 2.1-4.8 4.7-4.8 1.9 0 3.6 1 4.7 2.7 1.1-1.7 2.8-2.7 4.7-2.7 2.6 0 4.7 2 4.7 4.8 0 4.7-4.4 8.4-9.4 12z"/></svg>';
+
+  function folioHtml(n) {
+    return '<div class="folio"><span class="divider" aria-hidden="true"><i></i><i></i><i></i></span><span class="badge" aria-hidden="true">' + n + '</span></div>';
+  }
+
+  function storySlide(page, i) {
+    const n = i + 1;
+    const art = page.image_url ? '<div class="art"><img src="' + esc(page.image_url) + '" alt="Иллюстрация к странице ' + n + '" decoding="async"></div>' : '';
+    const leaf = '<div class="leaf"><div class="txt">' + esc(page.text) + '</div>' + folioHtml(n) + '</div>';
+    // как в PDF: у нечётных страниц сначала картинка, у чётных сначала текст
+    return '<article class="slide page ' + (n % 2 ? 'odd' : 'even') + '" aria-label="Страница ' + n + '">' + (n % 2 ? art + leaf : leaf + art) + '</article>';
+  }
+
   function slidesHtml(o) {
     const b = o.book;
     const mock = o.mock ? '<p class="mock">' + esc(b.mock_note) + '</p>' : '';
+    const titled = o.cover_has_title === true;      // название уже нарисовано на картинке обложки
     const out = [];
-    out.push('<article class="slide cover" aria-label="Обложка"><div class="art"><img src="' + o.cover_url + '" alt="Обложка книги"></div>' +
-      '<div class="band" style="background:' + esc(o.cover_color || '#34503f') + '"><h2>' + esc(b.title) + '</h2><p>' + esc(b.caption) + '</p></div></article>');
+    out.push('<article class="slide cover' + (titled ? ' titled' : '') + '" aria-label="Обложка"><div class="art"><img src="' + esc(o.cover_url) + '" alt="' + esc(titled ? 'Обложка книги: ' + b.title : 'Обложка книги') + '" decoding="async"></div>' +
+      (titled ? '' : '<div class="band" style="background:' + esc(o.cover_color || '#34503f') + '"><h2>' + esc(b.title) + '</h2><p>' + esc(b.caption) + '</p></div>') + '</article>');
     out.push('<article class="slide center" aria-label="Посвящение"><h2>' + esc(b.dedication_title) + '</h2>' + ORNAMENT +
       (b.dedication_text ? '<p class="it">' + esc(b.dedication_text) + '</p>' : '') + mock + '</article>');
-    o.pages.forEach((p, i) => out.push('<article class="slide page" aria-label="Страница ' + (i + 1) + '"><div class="art"><img src="' + p.image_url + '" alt="Иллюстрация к странице ' + (i + 1) + '"></div>' +
-      '<div class="txt">' + esc(p.text) + '</div><div class="num">— ' + (i + 1) + ' —</div></article>'));
-    out.push('<article class="slide center" aria-label="Конец"><h2>' + esc(b.the_end) + '</h2>' + ORNAMENT + '<div class="frame">' + esc(b.moral) + '</div>' +
-      '<p class="wish">' + esc(b.wish) + '</p><p class="sig">' + esc(b.signature) + '</p>' + mock + '</article>');
+    o.pages.forEach((p, i) => out.push(storySlide(p, i)));
+    out.push('<article class="slide center end" aria-label="Конец"><h2>' + esc(b.the_end) + '</h2>' + ORNAMENT + '<div class="frame">' + esc(b.moral) + '</div>' +
+      HEART + '<p class="wish">' + esc(b.wish) + '</p>' + ORNAMENT.replace('class="orn"', 'class="orn small"') + '<p class="sig">' + esc(b.signature) + '</p>' + mock + '</article>');
     return out.join('');
   }
 
@@ -916,6 +993,15 @@
         '<div class="btnrow">' + bot + '<button type="button" class="btn secondary small" data-act="resend">' + icon('send') + 'Отправить в чат ещё раз</button></div></div>';
     }
     return '';
+  }
+
+  function printHtml() {
+    const p = printCfg();
+    if (!p) return '';
+    return '<section class="print" id="print-offer"><div class="print-head"><span class="big em" aria-hidden="true">🎁</span><h2>' + esc(p.title || 'Хотите заказать печатную версию?') + '</h2></div>' +
+      '<ul class="print-rows"><li><b>' + esc(p.pdf_price || S.cfg.price_text) + '</b> — PDF</li>' +
+      '<li><b>' + esc(p.print_price) + '</b> — мягкая фотокнига 21×21 см</li></ul>' +
+      (p.whatsapp_url ? '<button type="button" class="btn" data-act="print-order">' + icon('send') + 'Заказать в WhatsApp</button>' : '') + '</section>';
   }
 
   function feedbackHtml() {
@@ -964,7 +1050,7 @@
       '<span class="count" id="pager-count" aria-live="polite">1 / ' + count + '</span>' +
       '<button type="button" class="pn" data-act="pager-next" aria-label="Следующая страница">' + icon('next') + '</button></div>' +
       '<div class="pager" id="pager" tabindex="0" role="region" aria-roledescription="карусель" aria-label="Страницы книги">' + slidesHtml(o) + '</div></div>' +
-      feedbackHtml() +
+      printHtml() + feedbackHtml() +
       '<button type="button" class="btn secondary again" data-act="again">🎁 Сделать ещё одну, для брата или сестры</button>' +
       '<footer class="footer"><button type="button" class="btn gold" data-act="download">' + icon('download') + 'Скачать PDF</button></footer></section>';
     bindPager(count);
@@ -1060,6 +1146,7 @@
     haptic.tap();
     const keep = { language: S.a.language, islamic: S.a.islamic };
     await refreshConfig();
+    if (accessClosed()) { showClosed(); return; }
     if (S.cfg.limits.remaining_today < 1) { showWelcome(); return; }
     startWizard(keep);
   }
@@ -1222,15 +1309,31 @@
     if (S.screen === 'admin') renderAdmin(quiet);
   }
 
+  const closedOn = (st) => st.closed === undefined || st.closed === null ? true : !!st.closed;
+
+  async function loadInvites() {
+    try {
+      const res = await api('/api/admin/invites');
+      S.inv.list = (res && res.invites) || [];
+      S.inv.listError = '';
+    } catch (e) {
+      S.inv.list = S.inv.list || [];
+      S.inv.listError = e.message;
+    }
+    if (S.screen === 'admin' && S.adminTab === 'invites') renderAdmin(true);
+  }
+
   function renderAdmin(quiet) {
     const a = S.admin;
     const keep = quiet ? window.scrollY : 0;
-    const tabs = [['checks', 'Чеки', a.pending.length], ['settings', 'Настройки', 0]].map((t) =>
+    const tabs = [['checks', 'Чеки', a.pending.length], ['invites', 'Ссылки', 0], ['settings', 'Настройки', 0]].map((t) =>
       '<button type="button" role="tab" aria-selected="' + (S.adminTab === t[0]) + '" data-act="admin-tab" data-tab="' + t[0] + '">' + t[1] + (t[2] ? '<b class="n">' + t[2] + '</b>' : '') + '</button>').join('');
     app.innerHTML = '<section class="screen admin"><header class="a-head"><h1>' + icon('gear') + 'Админка</h1>' +
-      '<p>' + (a.settings.enabled && a.settings.has_qr ? 'Приём оплаты <b class="on">включён</b>' : 'Приём оплаты <b class="off">выключен</b>: книги сейчас бесплатные') +
+      '<p>' + (closedOn(a.settings) ? 'Бот <b class="on">закрыт</b>: книги выдаются по личным ссылкам' : 'Бот <b class="off">открыт для всех</b>') + '</p>' +
+      '<p>' + (a.settings.enabled && a.settings.has_qr ? 'Приём оплаты <b class="on">включён</b>' : 'Приём оплаты <b class="off">выключен</b>' + (closedOn(a.settings) ? '' : ': книги сейчас бесплатные')) +
       ' · подтверждено за сутки: ' + a.paid_today + '</p></header>' +
-      '<div class="tabs" role="tablist">' + tabs + '</div><div class="a-body">' + (S.adminTab === 'checks' ? adminChecks(a) : adminSettings(a.settings)) + '</div></section>';
+      '<div class="tabs" role="tablist">' + tabs + '</div><div class="a-body">' +
+      (S.adminTab === 'checks' ? adminChecks(a) : S.adminTab === 'invites' ? adminInvites() : adminSettings(a.settings)) + '</div></section>';
     if (quiet) window.scrollTo(0, keep); else window.scrollTo(0, 0);
   }
 
@@ -1257,17 +1360,128 @@
     return (cards || empty) + waiting + recent;
   }
 
+  /* --- вкладка «Ссылки»: личные ссылки доступа --- */
+  function inviteMeta(inv) {
+    const books = Number(inv.credits) || 0;
+    const base = books + ' ' + plural(books, ['книга', 'книги', 'книг']);
+    if (inv.used_by === null || inv.used_by === undefined) return base + ' · не использована' + (inv.created_at ? ' · создана ' + ago(inv.created_at) : '');
+    return base + ' · использована: ' + (inv.user_name || 'пользователь') + (inv.used_at ? ' · ' + ago(inv.used_at) : '');
+  }
+
+  function adminInvites() {
+    const iv = S.inv;
+    const fresh = iv.fresh
+      ? '<div class="link-card" role="status"><b>Ссылка создана ✨</b><p class="url" id="inv-url">' + esc(iv.fresh.url) + '</p>' +
+        '<div class="btnrow"><button type="button" class="btn small" data-act="inv-copy">Скопировать</button>' +
+        '<button type="button" class="btn small secondary" data-act="inv-share">Отправить</button></div></div>' : '';
+    let rows;
+    if (iv.list === null) rows = '<p class="a-hint">Загружаю список…</p>';
+    else if (!iv.list.length) rows = '<p class="a-hint">' + (iv.listError ? esc(iv.listError) : 'Ссылок пока нет. Создайте первую выше.') + '</p>';
+    else rows = '<ul class="mini invites">' + iv.list.map((inv) => {
+      const used = inv.used_by !== null && inv.used_by !== undefined;
+      return '<li' + (used ? ' class="used"' : '') + '><div><b>' + esc(inv.note || 'без заметки') + '</b><span>' + esc(inviteMeta(inv)) + '</span></div>' +
+        (used ? '' : '<div class="btnrow">' +
+          (inv.url ? '<button type="button" class="btn small secondary" data-act="inv-copy" data-url="' + esc(inv.url) + '">' + icon('clip') + 'Скопировать</button>' : '') +
+          '<button type="button" class="btn small secondary" data-act="inv-revoke" data-token="' + esc(inv.token) + '">Отозвать</button></div>') + '</li>';
+    }).join('') + '</ul>';
+    return '<div class="set">' +
+      '<div class="switch-row stepper-row"><div class="t"><b id="l-credits">Сколько книг даёт ссылка</b></div>' +
+      '<div class="stepper" role="group" aria-labelledby="l-credits">' +
+      '<button type="button" class="pn" data-act="inv-minus" aria-label="Меньше"' + (iv.credits <= 1 ? ' disabled' : '') + '>' + icon('minus') + '</button>' +
+      '<output class="val" id="inv-credits" aria-live="polite">' + iv.credits + '</output>' +
+      '<button type="button" class="pn" data-act="inv-plus" aria-label="Больше"' + (iv.credits >= 5 ? ' disabled' : '') + '>' + icon('plus') + '</button></div></div>' +
+      '<label class="field"><span class="lbl" id="l-inv-note">Заметка (видите только вы)</span><input class="input" id="inv-note" type="text" maxlength="80" autocomplete="off" aria-labelledby="l-inv-note" placeholder="Для кого, например: Айгуль, Instagram" value="' + esc(iv.note) + '"></label>' +
+      '<p class="form-error" id="inv-error" role="alert"' + (iv.error ? '' : ' hidden') + '>' + esc(iv.error) + '</p>' +
+      '<button type="button" class="btn" data-act="inv-create" id="inv-create">Создать ссылку</button></div>' +
+      fresh + '<h2 class="a-sub">Созданные ссылки</h2>' + rows;
+  }
+
+  async function createInvite() {
+    const btn = document.getElementById('inv-create');
+    const err = document.getElementById('inv-error');
+    if (!btn || btn.disabled) return;
+    if (err) err.hidden = true;
+    btn.classList.add('busy'); btn.disabled = true;
+    S.inv.error = '';
+    try {
+      const note = ((document.getElementById('inv-note') || {}).value || '').trim().slice(0, 80);
+      const res = await adminAction('/api/admin/invites', { credits: S.inv.credits, note });
+      S.inv.fresh = res; S.inv.note = '';
+      haptic.ok();
+      renderAdmin(true);
+      loadInvites();
+    } catch (e) {
+      haptic.bad();
+      S.inv.error = e.message;                       // например, 409, если бот не запущен
+      btn.classList.remove('busy'); btn.disabled = false;
+      if (err) { err.textContent = e.message; err.hidden = false; }
+    }
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(() => true).catch(() => copyFallback(text));
+    }
+    return Promise.resolve(copyFallback(text));
+  }
+  function copyFallback(text) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  async function copyInvite(el) {
+    const url = el.dataset.url || (S.inv.fresh && S.inv.fresh.url);
+    if (!url) return;
+    const ok = await copyText(url);
+    if (ok) haptic.ok(); else haptic.bad();
+    showAdminToast(ok ? 'Ссылка скопирована ✓' : 'Не получилось скопировать. Ссылка: ' + url);
+  }
+
+  function shareInvite() {
+    const f = S.inv.fresh;
+    if (!f || !f.url) return;
+    haptic.tap();
+    const link = 'https://t.me/share/url?url=' + encodeURIComponent(f.url) + '&text=' + encodeURIComponent('Ссылка для создания персональной сказки:');
+    try { if (tg && tg.openTelegramLink) { tg.openTelegramLink(link); return; } } catch (e) { /* откроем обычной ссылкой */ }
+    window.open(link, '_blank');
+  }
+
+  function revokeInvite(el) {
+    const token = el.dataset.token;
+    confirmDialog('Отозвать ссылку? По ней больше нельзя будет получить доступ.', async () => {
+      el.classList.add('busy'); el.disabled = true;
+      try {
+        await adminAction('/api/admin/invites/' + encodeURIComponent(token) + '/revoke');
+        if (S.inv.fresh && S.inv.fresh.token === token) S.inv.fresh = null;
+        haptic.ok();
+        await loadInvites();
+      } catch (e) { el.classList.remove('busy'); el.disabled = false; haptic.bad(); showAdminToast(e.message); }
+    });
+  }
+
   function adminSettings(st) {
     const qr = st.qr_url
       ? '<div class="qr-card small"><img class="qr" src="' + esc(st.qr_url) + '" alt="Текущий QR-код" width="180" height="180"></div>'
       : '<div class="qr-card empty small"><p>QR-код ещё не загружен</p></div>';
     return '<div class="set">' +
+      '<div class="switch-row"><div class="t"><b id="sw-closed">🔒 Закрытый бот</b><p>Книги создают только по личным ссылкам из вкладки «Ссылки». Вам доступ открыт всегда.</p></div>' +
+      '<button type="button" class="switch" role="switch" aria-labelledby="sw-closed" aria-checked="' + closedOn(st) + '" data-act="closed-switch"></button></div>' +
       '<div class="switch-row"><div class="t"><b id="sw-pay">💳 Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, сказка создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-pay" aria-checked="' + !!st.enabled + '" data-act="pay-switch"' + (st.has_qr ? '' : ' disabled') + '></button></div>' +
       '<h2 class="a-sub">Ваш QR-код</h2>' + qr +
       '<input type="file" class="vh" id="qr-file" accept="image/*">' +
       '<label class="btn secondary small" id="qr-btn" for="qr-file" tabindex="0">' + icon('upload') + (st.has_qr ? 'Заменить QR-код' : 'Загрузить QR-код') + '</label>' +
       '<label class="field"><span class="lbl">Цена (показывается покупателю)</span><input class="input" id="set-price" type="text" maxlength="40" value="' + esc(st.price_text) + '" placeholder="499 сом"></label>' +
+      '<label class="field"><span class="lbl">Цена печатной книги</span><input class="input" id="set-print" type="text" maxlength="40" value="' + esc(st.print_price || '') + '" placeholder="1 290 сом"></label>' +
+      '<label class="field"><span class="lbl">Номер WhatsApp</span><input class="input" id="set-wa" type="tel" inputmode="numeric" maxlength="20" value="' + esc(st.whatsapp || '') + '" placeholder="996555123456" aria-describedby="h-wa"><span class="help" id="h-wa">Номер с кодом страны, например 996555123456. На него придут заказы печатной версии; пустое поле скрывает предложение печати.</span></label>' +
       '<label class="field"><span class="lbl">Подсказка для покупателя</span><textarea class="textarea" id="set-text" maxlength="400" rows="4" placeholder="' + esc(st.default_instructions) + '">' + esc(st.instructions) + '</textarea></label>' +
       '<p class="form-error" id="set-error" role="alert" hidden></p><p class="saved" id="set-saved" role="status" hidden>Сохранено ✓</p>' +
       '<button type="button" class="btn" data-act="settings-save">Сохранить настройки</button></div>';
@@ -1309,15 +1523,20 @@
     try {
       const st = S.admin.settings;
       const res = await adminAction('/api/admin/settings', {
+        closed: closedOn(st), whatsapp: document.getElementById('set-wa').value.trim(), print_price: document.getElementById('set-print').value,
         enabled: st.enabled, price_text: document.getElementById('set-price').value, instructions: document.getElementById('set-text').value,
       });
       S.admin.settings = Object.assign({}, S.admin.settings, res);
       haptic.ok();
-      renderAdmin();
+      renderAdmin(true);
       const saved = document.getElementById('set-saved'); if (saved) saved.hidden = false;
     } catch (e) {
       btn.classList.remove('busy'); btn.disabled = false;
       err.textContent = e.message; err.hidden = false; haptic.bad();
+      const ids = { price_text: 'set-price', print_price: 'set-print', whatsapp: 'set-wa', instructions: 'set-text' };
+      $$('.set .invalid').forEach((x) => x.classList.remove('invalid'));
+      const bad = e.data && ids[e.data.field] && document.getElementById(ids[e.data.field]);
+      if (bad) { bad.classList.add('invalid'); try { bad.focus({ preventScroll: true }); } catch (x) { /* ok */ } }
     }
   }
 
@@ -1349,7 +1568,7 @@
 
   /* ===================================================================== события */
   const ACTIONS = {
-    start: () => { haptic.tap(); startWizard(); },
+    start: () => { haptic.tap(); if (accessClosed()) { showClosed(); return; } startWizard(); },
     next, back,
     pick: (el) => pick(el),
     toggle: (el) => toggleChip(el.dataset.kind, el.dataset.id),
@@ -1380,7 +1599,16 @@
     'qr-zoom': zoomQr,
     'qr-save': saveQr,
     'open-admin': () => { haptic.tap(); showAdmin('checks'); },
-    'admin-tab': (el) => { S.adminTab = el.dataset.tab; haptic.select(); renderAdmin(); },
+    'admin-tab': (el) => { S.adminTab = el.dataset.tab; haptic.select(); renderAdmin(); if (S.adminTab === 'invites') loadInvites(); },
+    'closed-switch': (el) => { const st = S.admin.settings; st.closed = !closedOn(st); el.setAttribute('aria-checked', String(st.closed)); haptic.select(); },
+    'inv-minus': () => { S.inv.credits = Math.max(1, S.inv.credits - 1); haptic.select(); renderAdmin(true); },
+    'inv-plus': () => { S.inv.credits = Math.min(5, S.inv.credits + 1); haptic.select(); renderAdmin(true); },
+    'inv-create': createInvite,
+    'inv-copy': copyInvite,
+    'inv-share': shareInvite,
+    'inv-revoke': revokeInvite,
+    'print-order': () => { const pr = printCfg(); haptic.tap(); if (pr && pr.whatsapp_url) openExternal(pr.whatsapp_url); },
+    'wa-open': () => { haptic.tap(); openExternal(accessWaUrl()); },
     approve: approvePayment,
     'reject-open': (el) => { const r = $('.reject', el.closest('.rcard')); r.hidden = !r.hidden; if (!r.hidden) $('input', r).focus({ preventScroll: true }); },
     'reject-reason': (el) => { const input = $('input', el.closest('.reject')); input.value = el.dataset.text; haptic.select(); },
@@ -1408,6 +1636,7 @@
     const el = ev.target;
     if (el.id === 'in-like') { const add = document.getElementById('b-like'); add.disabled = !el.value.trim() || S.a.likes.length >= 3; return; }
     if (el.id === 'fb-comment') { S.fb.comment = el.value; syncFeedback(); return; }
+    if (el.id === 'inv-note') { S.inv.note = el.value; return; }
     const field = el.dataset && el.dataset.field;
     if (!field) return;
     if (el.type === 'checkbox') { S.a[field] = el.checked; haptic.select(); updateFooter(); return; }
@@ -1440,8 +1669,16 @@
     }
   });
 
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && S.screen === 'wait') { S.pollId += 1; poll(S.pollId); }
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) return;
+    if (S.screen === 'wait') { S.pollId += 1; poll(S.pollId); return; }
+    // вернулись из бота, где открыли личную ссылку: счёт книг мог измениться
+    if (S.screen === 'closed' || S.screen === 'welcome') {
+      const key = () => JSON.stringify([S.cfg && S.cfg.access, S.cfg && S.cfg.limits && S.cfg.limits.remaining_today]);
+      const before = key();
+      await refreshConfig();
+      if ((S.screen === 'closed' || S.screen === 'welcome') && key() !== before) showWelcome();
+    }
   });
 
   /* ===================================================================== запуск */

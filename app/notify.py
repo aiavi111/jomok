@@ -2,6 +2,11 @@
 
 Настоящая реализация (через Telegram) — в app/bot.py; здесь интерфейс и «пустая» версия,
 которая работает без бота (режим заглушек и тесты).
+
+Дополнительные методы необязательны, сервис вызывает их через getattr и без них просто пропускает шаг:
+  notify_payment(order_id, receipt_path, text) — чек владельцу с кнопками;
+  notify_user(user_id, text)                   — сообщение человеку;
+  send_print_offer(user_id, text, whatsapp_url) — предложение печатной версии после книги (кнопка «Заказать в WhatsApp»).
 """
 from __future__ import annotations
 
@@ -35,3 +40,6 @@ class NullNotifier:
 
     async def notify_admin(self, text: str) -> None:
         log.info("Сообщение администратору (бот не подключён): %s", text)
+
+    async def send_print_offer(self, user_id, text, whatsapp_url) -> None:
+        return None

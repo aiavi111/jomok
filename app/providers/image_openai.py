@@ -39,6 +39,7 @@ def data_url(data: bytes) -> str:
 class OpenAIImageProvider(ImageProvider):
     name = "openai"
     supports_reference = True
+    renders_text = True           # GPT Image хорошо рисует кириллицу, название пишется на обложке картинкой
 
     def __init__(self, api_key: str, base_url: str, model: str, quality: str = "medium", *,
                  transport: httpx.AsyncBaseTransport | None = None):

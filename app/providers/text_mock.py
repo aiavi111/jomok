@@ -11,7 +11,7 @@ import asyncio
 
 from .. import options
 from ..profile import Profile
-from ..story import Story, validate_story
+from ..story import PAGES, Story, validate_story
 from ..textutil import cap_first, cyrillic_ratio
 from .base import TextProvider
 
@@ -257,33 +257,46 @@ def _pages_ru(c: _Ctx, count: int) -> list[str]:
           f"{n} {g('задумался', 'задумалась')}, как пройти дальше.",
           crossing,
           "Преграда осталась позади, а впереди ждало настоящее приключение."]
-    p4 = [adv[0], adv[1],
+    p4 = [adv[0],
           f"{n} {g('шёл', 'шла')} вперёд, а {helper} {hv('бежал', 'бежала')} рядом.",
           "Они пели песенки и считали облака.",
           f"{n} {g('вспомнил', 'вспомнила')}, что любит больше всего: {c.like}, — и от этого шагалось веселее.",
-          "Дорога казалась всё короче."]
-    p5 = [val["sit"][0], val["sit"][1],
+          "Дорога казалась всё короче.",
+          "А впереди уже что-то блестело."]
+    p5 = [adv[1],
+          f"— Смотри, как здорово! — {hv('воскликнул', 'воскликнула')} {helper}.",
+          f"{n} {g('засмеялся', 'засмеялась')} и {g('побежал', 'побежала')} вперёд, а {helper} — следом.",
+          "Они играли в догонялки и даже не заметили, как пролетело время.",
+          "Корзинка всё ещё хранила тепло лепёшек.",
+          "Но дорога вела дальше, и приключение только разгоралось."]
+    p6 = ["Вдруг налетел сильный ветер и закружил листья, так что тропинка пропала из виду.",
+          f"{n} {g('остановился', 'остановилась')} и {g('огляделся', 'огляделась')}: куда теперь идти?",
+          f"{cap_first(helper)} {hv('растерянно топтался', 'растерянно топталась')} рядом.",
+          f"— Тихо! Слышишь? — {g('шепнул', 'шепнула')} {n}. — Там журчит вода, нам туда!",
+          "Они пошли на звук, и ветер понемногу стих.",
+          "Тропинка снова легла под ноги."]
+    p7 = [val["sit"][0], val["sit"][1],
           "Остановиться — значит задержаться в пути. Пройти мимо — гораздо проще.",
           f"{n} {g('замер', 'замерла')} и {g('задумался', 'задумалась')}.",
           "Решать нужно было самому — рядом не было взрослых.",
           f"{cap_first(helper)} молча {hv('ждал', 'ждала')} и {hv('смотрел', 'смотрела')} на друга."]
-    p6 = [val["choice"][0], val["choice"][1], val["choice"][2],
+    p8 = [val["choice"][0], val["choice"][1], val["choice"][2],
           f"Никто не подсказывал — {n} {g('решил', 'решила')} сам{g('', 'а')}.",
           f"{cap_first(helper)} с уважением {hv('посмотрел', 'посмотрела')} на друга.",
           "И сразу стало легко на сердце."]
-    p7 = [val["result"][0],
+    p9 = [val["result"][0],
           (f"«Альхамдулиллях!» — {g('улыбнулся', 'улыбнулась')} {n}." if bism else val["result"][1]),
           val["result"][2] if not bism else val["result"][1],
           f"{n} {g('почувствовал', 'почувствовала')}, как радостно на сердце.",
           f"{cap_first(helper)} {hv('подпрыгнул', 'подпрыгнула')} от счастья.",
           "Солнце засияло ещё ярче."]
-    p8 = [f"Когда солнце начало садиться, {n} {g('добрался', 'добралась')} до бабушкиного дома.",
+    p10 = [f"Когда солнце начало садиться, {n} {g('добрался', 'добралась')} до бабушкиного дома.",
           f"Бабушка {g('обняла внука', 'обняла внучку')} и угостила всех горячим чаем.",
           f"{n} {g('рассказал', 'рассказала')} о своём приключении, и все гордились {g('им', 'ею')}.",
           f"{cap_first(helper)} {hv('махал', 'махала')} на прощание.",
           f"Вечером {n} {g('вернулся', 'вернулась')} домой с лёгким сердцем.",
           "Вот и сказке конец, а кто слушал — молодец!"]
-    return [_pick(pg, count) for pg in (p1, p2, p3, p4, p5, p6, p7, p8)]
+    return [_pick(pg, count) for pg in (p1, p2, p3, p4, p5, p6, p7, p8, p9, p10)]
 
 
 # ================================================================== кыргызский
@@ -370,33 +383,46 @@ def _pages_ky(c: _Ctx, count: int) -> list[str]:
           f"{n} суудан кантип өтүүнү ойлонду.",
           "Экөө чогуу таштарды таап, аркы өйүзүнө өтүштү.",
           "Суу артта калды, алдыда чыныгы укмуш күтүп турду."]
-    p4 = [adv[0], adv[1],
+    p4 = [adv[0],
           f"{n} алдыга басты, {helper} жанында чуркады.",
           "Экөө ыр ырдап, булуттарды санашты.",
           f"{n} эң жакшы көргөнүн эстеди: {c.like}, ошондо жүрүү жеңилдеди.",
-          "Жол кыска сезилди."]
-    p5 = [val["sit"][0], val["sit"][1],
+          "Жол кыска сезилди.",
+          "Алдыда бир нерсе жаркырап турду."]
+    p5 = [adv[1],
+          f"— Кандай сонун! — деди {helper}.",
+          f"{n} күлүп, алдыга чуркады, {helper} анын артынан жөнөдү.",
+          "Экөө бири-бирин кууп ойноп, убакыттын кандай өткөнүн байкашкан жок.",
+          "Себеттеги боорсоктор дагы жылуу эле.",
+          "Бирок жол андан ары созулуп, эң кызыгы эми эле башталып жаткан."]
+    p6 = ["Күтүлбөгөн жерден катуу шамал чыгып, жалбырактарды учуруп, жолду жашырып салды.",
+          f"{n} токтоп, тегерегин карады: эми кайсы жакка барабыз?",
+          f"{helper.capitalize()} да кайсы жакка барарын билбей турду.",
+          f"— Тсс! Угуп жатасыңбы? — деп шыбырады {n}. — Ал жакта суу шылдырап жатат, ошол жакка барабыз!",
+          "Экөө ошол үнгө карай жөнөштү, шамал акырындап басылды.",
+          "Жол кайра буттун алдында көрүндү."]
+    p7 = [val["sit"][0], val["sit"][1],
           "Токтосо — жолдон кечигет. Өтүп кетсе — оңой.",
           f"{n} токтоп, ойлонуп калды.",
           "Чечүү керек болчу — жанында чоңдор жок эле.",
           f"{helper.capitalize()} унчукпай күтүп турду."]
-    p6 = [val["choice"][0], val["choice"][1], val["choice"][2],
+    p8 = [val["choice"][0], val["choice"][1], val["choice"][2],
           f"Эч ким айтып бербеди — {n} өзү чечти.",
           f"{helper.capitalize()} досун сыйлап карады.",
           "Жүрөк жеңил болду."]
-    p7 = [val["result"][0],
+    p9 = [val["result"][0],
           (f"«Алхамдулиллах!» — деди {n} жылмайып." if bism else val["result"][1]),
           val["result"][2] if not bism else val["result"][1],
           f"{n} жүрөгү кубанычка толду.",
           f"{helper.capitalize()} кубанганынан секирди.",
           "Күн дагы жаркырап чыкты."]
-    p8 = [f"Күн батканда {n} чоң энесинин үйүнө жетти.",
+    p10 = [f"Күн батканда {n} чоң энесинин үйүнө жетти.",
           "Чоң эне кучактап, баарына ысык чай куюп берди.",
           f"{n} өзүнүн укмушун айтып берди, баары сыймыктанды.",
           f"{helper.capitalize()} коштошуп кол булгады.",
           f"Кечинде {n} жеңил жүрөк менен үйүнө кайтты.",
           "Жомок ушуну менен бүттү."]
-    return [_pick(pg, count) for pg in (p1, p2, p3, p4, p5, p6, p7, p8)]
+    return [_pick(pg, count) for pg in (p1, p2, p3, p4, p5, p6, p7, p8, p9, p10)]
 
 
 # =============================================================== общие части
@@ -432,12 +458,14 @@ def _scenes(c: _Ctx) -> list[str]:
     hero = f"the {kid} hero"
     helper = c.helper_en
     dil, choice, result = VALUE_EN[p.value]
-    mood = "Soft, gentle, welcoming mood"
+    mood = "Bright, joyful, welcoming mood"
     return [
-        f"Wide establishing shot: {hero} stands cheerfully in {place_en}, morning light, a cozy family home nearby, a hint of the adventure to come. {mood}.",
+        f"Wide establishing shot: {hero} laughs and plays cheerfully in {place_en}, sunny morning light, a cozy family home nearby, a hint of the adventure to come. {mood}.",
         f"{hero.capitalize()} receives a woven basket of warm flatbreads from a smiling mother at the doorway of the home, soft morning glow, loving gesture, {place_en} behind them.",
         f"{hero.capitalize()} meets {helper} on a winding path; both look at a sparkling stream ahead; friendly curiosity, {place_en} in the background, {mood.lower()}.",
         f"The two friends walk together along the trail through {place_en}, {hero} holding the basket, drifting clouds and warm light, a sense of wonder and journey.",
+        f"The two friends run and laugh ahead of the camera through a vivid corner of {place_en}, discovering something sparkling in the distance, dynamic joyful composition, glowing sunlight.",
+        f"A playful strong wind swirls colourful leaves and hides the trail; {hero} stops, looks around and listens carefully with the basket, {helper} looks puzzled beside them, {place_en} around, curious not scary.",
         f"Close-up of {hero} pausing thoughtfully with the basket, noticing {dil}; {helper} waits nearby; the way onward is visible behind; gentle emotional tension without any fear.",
         f"{hero.capitalize()} kindly {choice}; {helper} watches with admiration; warm light highlights the decision, {place_en} softly behind.",
         f"Joyful moment: {result}; {hero} and {helper} smile, glowing golden light, celebratory warm mood, {place_en} around them.",
@@ -445,11 +473,20 @@ def _scenes(c: _Ctx) -> list[str]:
     ]
 
 
+def _kept_pages(have: int, want: int) -> list[int]:
+    """Заглушка написана на 10 страниц; нужное число берём равномерно, первая и последняя остаются."""
+    if want >= have:
+        return list(range(have))
+    return sorted({round(i * (have - 1) / (want - 1)) for i in range(want)})
+
+
 def build_mock_story(p: Profile) -> dict:
     c = _Ctx(p)
     count = _sentence_count(p.age)
     texts = _pages_ky(c, count) if p.language == "ky" else _pages_ru(c, count)
     scenes = _scenes(c)
+    keep = _kept_pages(len(texts), PAGES)
+    texts, scenes = [texts[i] for i in keep], [scenes[i] for i in keep]
     helper_title = c.helper_ky if p.language == "ky" else c.helper_ru
     title = f"{p.name} жана {helper_title}" if p.language == "ky" else f"{p.name} и {helper_title}"
     moral = MORAL[p.language][p.value]
@@ -460,7 +497,7 @@ def build_mock_story(p: Profile) -> dict:
     return {
         "title": title,
         "hero_visual": _hero_visual(p),
-        "style_note": "Warm golden-hour light, soft sky-blue and apricot palette with fresh green accents.",
+        "style_note": "Bright sunny light, saturated turquoise sky and golden highlights with lush green accents.",
         "pages": [{"text": t, "scene": s} for t, s in zip(texts, scenes)],
         "moral": moral,
         "wish": wish,
@@ -478,5 +515,5 @@ class MockTextProvider(TextProvider):
             await asyncio.sleep(self.delay)
         return validate_story(build_mock_story(profile), profile.language)
 
-    async def _complete(self, system, messages):  # pragma: no cover - mock не ходит в сеть
+    async def _complete(self, system, messages, model=None):  # pragma: no cover - mock не ходит в сеть; model игнорируется
         raise NotImplementedError

@@ -14,10 +14,10 @@ from aiohttp import web
 from . import __version__, options
 from .auth import TgUser, authenticate
 from .config import ROOT, Settings
-from .errors import AppError, AuthError, ForbiddenError, NotFoundError, ValidationError
+from .errors import AppError, AuthError, ConflictError, ForbiddenError, NotFoundError, ValidationError
 from .imaging import MAX_PHOTO_BYTES
 from .links import check_token
-from .service import OrderService
+from .service import OrderService, invite_url
 from .db import Database
 
 log = logging.getLogger(__name__)
@@ -102,6 +102,19 @@ def _is_admin(settings: Settings, user: TgUser) -> bool:
     return settings.admin_chat_id is not None and user.id == settings.admin_chat_id
 
 
+async def _read_json_body(request: web.Request, what: str) -> dict | None:
+    """Тело запроса как JSON-объект; пустое тело — None (значения по умолчанию)."""
+    if not request.can_read_body:
+        return None
+    try:
+        data = await request.json()
+    except ValueError:
+        raise ValidationError(f"{what} пришли в неверном виде.")
+    if data is not None and not isinstance(data, dict):
+        raise ValidationError(f"{what} пришли в неверном виде.")
+    return data
+
+
 async def get_config(request: web.Request) -> web.Response:
     settings: Settings = request.app[SETTINGS_KEY]
     service: OrderService = request.app[SERVICE_KEY]
@@ -118,6 +131,9 @@ async def get_config(request: web.Request) -> web.Response:
         "free_in_test": not service.desk.required(),
         "payment_required": service.desk.required(),
         "is_admin": _is_admin(settings, user),
+        "access": service.access_state(user.id),
+        "access_whatsapp_url": service.access_whatsapp_url(),     # «напишите нам», когда доступа нет
+        "print": service.print_offer(),
         "limits": {
             "books_per_day": settings.max_books_per_user_per_day,
             "remaining_today": service.remaining_today(user.id),
@@ -335,15 +351,38 @@ async def admin_settings(request: web.Request) -> web.Response:
         data = await request.json()
     except ValueError:
         raise ValidationError("Настройки пришли в неверном виде.")
-    service.desk.update(data)
-    return json_response({**service.desk.settings(), "qr_url": service.qr_url()})
+    return json_response(service.update_admin_settings(data))
 
 
 async def admin_qr(request: web.Request) -> web.Response:
     _require_admin(request)
     service: OrderService = request.app[SERVICE_KEY]
     service.desk.save_qr(await _read_single_image(request, "qr"))
-    return json_response({**service.desk.settings(), "qr_url": service.qr_url()})
+    return json_response(service.admin_settings())
+
+
+# ------------------------------------------------------------------ личные ссылки (только владелец)
+async def admin_create_invite(request: web.Request) -> web.Response:
+    _require_admin(request)
+    service: OrderService = request.app[SERVICE_KEY]
+    username = request.app[BOT_KEY].get("username")
+    if not username:
+        raise ConflictError("Бот сейчас не запущен, поэтому ссылку собрать нельзя. "
+                            "Проверьте TELEGRAM_BOT_TOKEN и перезапустите сервер.")
+    invite = service.create_invite(await _read_json_body(request, "Данные ссылки"))
+    return json_response({"token": invite["token"], "url": invite_url(username, invite["token"]),
+                          "credits": invite["credits"]}, 201)
+
+
+async def admin_list_invites(request: web.Request) -> web.Response:
+    _require_admin(request)
+    return json_response({"invites": request.app[SERVICE_KEY].list_invites(request.app[BOT_KEY].get("username"))})
+
+
+async def admin_revoke_invite(request: web.Request) -> web.Response:
+    _require_admin(request)
+    request.app[SERVICE_KEY].revoke_invite(request.match_info["token"])
+    return json_response({"ok": True})
 
 
 async def post_feedback(request: web.Request) -> web.Response:
@@ -396,6 +435,9 @@ def create_app(settings: Settings, db: Database, service: OrderService, bot_info
     app.router.add_post("/api/admin/orders/{order_id}/reject", admin_reject)
     app.router.add_post("/api/admin/settings", admin_settings)
     app.router.add_post("/api/admin/qr", admin_qr)
+    app.router.add_post("/api/admin/invites", admin_create_invite)
+    app.router.add_get("/api/admin/invites", admin_list_invites)
+    app.router.add_post("/api/admin/invites/{token}/revoke", admin_revoke_invite)
     if WEBAPP_DIR.exists():
         app.router.add_static("/static/", WEBAPP_DIR, follow_symlinks=False)
     return app

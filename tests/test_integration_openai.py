@@ -13,6 +13,7 @@ from app.profile import Profile
 from app.providers.image_openai import OpenAIImageProvider
 from app.providers.text_mock import build_mock_story
 from app.providers.text_openai import OpenAITextProvider
+from app.story import PAGES
 
 from .conftest import SAMPLE, build_env, tma
 
@@ -67,11 +68,11 @@ async def test_whole_order_over_real_http_without_photo(tmp_path):
                         text_provider="openai", image_provider="openai")
     try:
         order = await e.wait_done(await e.create())
-        assert order["status"] == "done" and order["pdf_url"] and len(order["pages"]) == 8
+        assert order["status"] == "done" and order["pdf_url"] and len(order["pages"]) == PAGES
         kinds = [(path, body.get("model")) for kind, body, path in fake.calls]
-        assert kinds.count(("/v1/chat/completions", "text-model-from-env")) == 2   # сказка и проход редактора
+        assert kinds.count(("/v1/chat/completions", "text-model-from-env")) == 3   # сказка, редактор и чтение названия на обложке
         assert kinds.count(("/v1/images/generations", "image-model-from-env")) == 1       # обложка без референсов
-        assert kinds.count(("/v1/images/edits", "image-model-from-env")) == 8             # страницы: референс — обложка
+        assert kinds.count(("/v1/images/edits", "image-model-from-env")) == PAGES         # страницы: референс — обложка
         edits = [body for _, body, path in fake.calls if path.endswith("/edits")]
         assert all(len(b["images"]) == 1 and b["images"][0]["image_url"].startswith("data:image/jpeg;base64,") for b in edits)
         assert all("input_fidelity" not in b and b["quality"] == "low" and b["size"] == "1024x1024" for b in edits)
@@ -93,10 +94,10 @@ async def test_photo_goes_to_openai_only_as_reference_and_book_still_builds(tmp_
         order = await e.wait_done((await resp.json())["order_id"])
         assert order["status"] == "done"
         edits = [body for _, body, path in fake.calls if path.endswith("/edits")]
-        assert len(edits) == 9                                              # обложка по фото + 8 страниц
+        assert len(edits) == PAGES + 1                                      # обложка по фото + страницы сказки
         assert len(edits[0]["images"]) == 1 or len(edits[0]["images"]) == 2
         page_edits = [b for b in edits if len(b["images"]) == 2]
-        assert len(page_edits) == 8                                          # обложка + фото
+        assert len(page_edits) == PAGES                                     # обложка + фото
         assert not any("generations" in path for _, _, path in fake.calls)
     finally:
         await e.service.shutdown(); await e.client.close(); e.db.close(); await server.close()

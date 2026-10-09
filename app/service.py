@@ -1,4 +1,5 @@
-"""Сервис заказов: лимиты, очередь, генерация книги, статус для Mini App, доставка, отзывы, уборка файлов."""
+"""Сервис заказов: доступ по личным ссылкам, лимиты, очередь, генерация книги, статус для Mini App, доставка,
+предложение печатной версии, отзывы, уборка файлов (в том числе фото не старше суток)."""
 from __future__ import annotations
 
 import asyncio
@@ -9,15 +10,16 @@ import secrets
 import shutil
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from .auth import TgUser
-from .bookgen import BookResult, build_book
+from .bookgen import PAGE_IMAGE_NAMES, BookResult, build_book, read_cover_meta
 from .bookinfo import book_labels
 from .config import Settings
 from .declension import genitive_ru
 from .db import ACTIVE_STATUSES, PAYMENT_STATUSES, Database
-from .errors import (AppError, BusyError, ConflictError, LimitError, NotFoundError, ProviderError, StoryError,
-                     ValidationError)
+from .errors import (AppError, BusyError, ClosedError, ConflictError, LimitError, NotFoundError, ProviderError,
+                     StoryError, ValidationError)
 from .paydesk import PaymentDesk
 from .imaging import hex_color, band_color, prepare_photo
 from .links import make_token
@@ -25,19 +27,40 @@ from .notify import Notifier
 from .payments import PaymentProvider
 from .profile import Profile
 from .providers.base import ImageProvider, TextProvider
-from .story import Story
+from .story import PAGES, Story
 from .textutil import clean_text, human_wait, ru_plural
 
 log = logging.getLogger(__name__)
 
 ORDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,32}$")
-IMAGE_NAME_RE = re.compile(r"^(cover|p[1-8])$")
+IMAGE_NAME_RE = re.compile(r"^(cover|" + "|".join(PAGE_IMAGE_NAMES) + r")$")   # cover, p1..pN
 DAY = 24 * 60 * 60
 UNPAID_KEEP_DAYS = 3             # неоплаченный заказ без чека через столько дней отменяется сам
 QR_TOKEN_ID = "payment-qr"
 DEFAULT_REJECT = "Платёж не найден. Проверьте сумму и отправьте чек ещё раз."
 QUEUE_MAX = 30
 WOULD_PAY = ("yes", "maybe", "no")
+
+# --- закрытый бот и личные ссылки
+CLOSED_KEY = "closed_bot"        # в таблице settings: "1" закрыт (по умолчанию), "0" открыт для всех
+CLOSED_TEXT = ("Бот работает по личным ссылкам. Ссылку на доступ вы получите после оплаты: "
+               "напишите нам в WhatsApp.")
+INVITE_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+INVITE_MAX_CREDITS = 20
+INVITE_NOTE_MAX = 80
+INVITE_LIST_LIMIT = 30
+
+# --- предложение печатной версии
+PRINT_TITLE = "Хотите заказать печатную версию?"
+PRINT_NOTE = "Мягкая фотокнига 21×21 см"
+PRINT_MESSAGE = "Здравствуйте! Хочу заказать печатную версию сказки"
+PRINT_BUTTON = "Заказать в WhatsApp"
+ACCESS_MESSAGE = "Здравствуйте! Хочу получить ссылку на создание сказки"      # текст в WhatsApp для получения доступа
+
+# --- обещание про фото: удаляем сразу после создания книги и в любом случае не позже чем через сутки
+PHOTO_TTL = DAY
+CLEANUP_PERIOD = 60 * 60          # как часто main.py запускает cleanup()
+PHOTO_PURGE_AFTER = PHOTO_TTL - CLEANUP_PERIOD   # режем с запасом на период уборки: фото живёт не дольше суток
 
 GENERIC_ERROR = ("Не получилось создать сказку: на нашей стороне произошёл сбой. "
                  "Эта попытка не засчитана — попробуйте ещё раз через несколько минут.")
@@ -50,6 +73,26 @@ INTERRUPTED = ("Сервер был перезапущен, и создание 
 def safe_filename(title: str) -> str:
     name = re.sub(r"[^\w\- ]+", "", title, flags=re.UNICODE).strip()
     return (name or "Сказка") + ".pdf"
+
+
+def whatsapp_url(digits: str, message: str = PRINT_MESSAGE) -> str:
+    """Ссылка на чат владельца в WhatsApp с готовым русским сообщением."""
+    return f"https://wa.me/{digits}?text={quote(message, safe='')}"
+
+
+def invite_url(bot_username: str, token: str) -> str:
+    """Личная ссылка: бот получает «/start inv_<токен>»."""
+    return f"https://t.me/{bot_username}?start=inv_{token}"
+
+
+def _parse_flag(value, field: str, label: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in ("1", "true", "0", "false"):
+        return value.strip().lower() in ("1", "true")
+    raise ValidationError(f"{label}: включено или выключено.", field=field)
 
 
 class OrderService:
@@ -96,6 +139,114 @@ class OrderService:
             raise NotFoundError("Такой книги нет.")
         return self.orders_dir / order_id
 
+    # ------------------------------------------------------------------ доступ по личным ссылкам
+    def is_admin(self, user_id: int) -> bool:
+        return self.settings.admin_chat_id is not None and user_id == self.settings.admin_chat_id
+
+    def closed(self) -> bool:
+        """Закрытый режим включён, пока владелец явно не выключил его в админке."""
+        return self.db.get_setting(CLOSED_KEY, "1") != "0"
+
+    def set_closed(self, value: bool) -> None:
+        self.db.set_setting(CLOSED_KEY, "1" if value else "0")
+
+    def access_state(self, user_id: int) -> dict:
+        """granted: можно ли прямо сейчас создать книгу (владелец, открытый режим или остались книги)."""
+        admin, closed, credits = self.is_admin(user_id), self.closed(), self.db.get_credits(user_id)
+        return {"granted": admin or not closed or credits > 0, "credits": credits, "closed": closed, "is_admin": admin}
+
+    def whatsapp(self) -> str:
+        return self.desk.whatsapp()
+
+    def access_whatsapp_url(self) -> str | None:
+        """Ссылка «напишите нам в WhatsApp» для тех, у кого нет доступа (с готовым сообщением); None — номер не задан."""
+        wa = self.whatsapp()
+        return whatsapp_url(wa, ACCESS_MESSAGE) if wa else None
+
+    def closed_error(self) -> ClosedError:
+        return ClosedError(CLOSED_TEXT, whatsapp_url=self.access_whatsapp_url())
+
+    async def redeem_invite(self, token: str, user_id: int, *, first_name: str | None = None,
+                            username: str | None = None, language_code: str | None = None) -> int | None:
+        """Погашает личную ссылку (один раз, атомарно) и сообщает владельцу. None — ссылка использована или недействительна."""
+        if not INVITE_RE.match(token or ""):
+            return None
+        self.db.upsert_user(user_id, username, first_name, language_code)
+        credits = self.db.redeem_invite(token, user_id)
+        if credits is None:
+            return None
+        log.info("Личная ссылка использована (книг: %s)", credits)
+        row = self.db.get_invite(token)
+        who = (first_name or "Без имени") + (f" (@{username})" if username else "")
+        text = (f"🔑 Ссылка доступа использована: {who}, "
+                f"{credits} {ru_plural(credits, 'книга', 'книги', 'книг')}."
+                + (f"\nЗаметка: {row['note']}" if row and row["note"] else ""))
+        try:
+            await self.notifier.notify_admin(text)
+        except Exception:  # noqa: BLE001 — доступ уже выдан, сообщение владельцу не критично
+            log.exception("Не удалось сообщить владельцу об использованной ссылке")
+        return credits
+
+    def invite_available(self, token: str) -> bool:
+        row = self.db.get_invite(token) if INVITE_RE.match(token or "") else None
+        return row is not None and row["used_by"] is None
+
+    def create_invite(self, data: dict | None) -> dict:
+        data = data or {}
+        if not isinstance(data, dict):
+            raise ValidationError("Запрос пришёл в неверном виде.")
+        raw = data.get("credits")
+        if raw is None or raw == "":
+            credits = 1
+        elif isinstance(raw, bool) or not (isinstance(raw, int) or (isinstance(raw, str) and raw.strip().isdigit())):
+            raise ValidationError(f"Число книг: целое от 1 до {INVITE_MAX_CREDITS}.", field="credits")
+        else:
+            credits = int(raw)
+        if not 1 <= credits <= INVITE_MAX_CREDITS:
+            raise ValidationError(f"Число книг: целое от 1 до {INVITE_MAX_CREDITS}.", field="credits")
+        note = clean_text(data.get("note"))
+        if len(note) > INVITE_NOTE_MAX:
+            raise ValidationError(f"Заметка: не длиннее {INVITE_NOTE_MAX} символов.", field="note")
+        token = secrets.token_urlsafe(9)
+        self.db.create_invite(token, credits, note)
+        return {"token": token, "credits": credits, "note": note}
+
+    def list_invites(self, bot_username: str | None) -> list[dict]:
+        def item(row) -> dict:
+            who = None
+            if row["used_by"] is not None:
+                who = (row["user_first_name"] or "Без имени") + (f" (@{row['user_username']})" if row["user_username"] else "")
+            return {"token": row["token"], "url": invite_url(bot_username, row["token"]) if bot_username else None,
+                    "credits": row["credits"], "note": row["note"] or "", "created_at": row["created_at"],
+                    "used_by": row["used_by"], "used_at": row["used_at"], "user_name": who}
+        return [item(r) for r in self.db.list_invites(INVITE_LIST_LIMIT)]
+
+    def revoke_invite(self, token: str) -> None:
+        row = self.db.get_invite(token) if INVITE_RE.match(token or "") else None
+        if row is None:
+            raise NotFoundError("Такой ссылки нет.")
+        if row["used_by"] is not None or not self.db.revoke_invite(token):
+            raise ConflictError("Эта ссылка уже использована, отозвать её нельзя.")
+
+    # ------------------------------------------------------------------ предложение печатной версии
+    def print_offer(self) -> dict:
+        wa = self.whatsapp()
+        return {"enabled": bool(wa), "whatsapp_url": whatsapp_url(wa) if wa else None,
+                "pdf_price": self.price_text(), "print_price": self.desk.print_price(),
+                "title": PRINT_TITLE, "note": PRINT_NOTE}
+
+    async def _offer_print(self, order_id: str, user_id: int) -> None:
+        """Второе сообщение под книгой: цены и кнопка «Заказать в WhatsApp» (только если номер задан)."""
+        offer = self.print_offer()
+        send = getattr(self.notifier, "send_print_offer", None)
+        if not offer["enabled"] or not send:
+            return
+        text = f"{PRINT_TITLE} {offer['pdf_price']}: PDF, {offer['print_price']}: мягкая фотокнига"
+        try:
+            await send(user_id, text, offer["whatsapp_url"])
+        except Exception:  # noqa: BLE001 — книга уже доставлена
+            log.exception("Заказ %s: не удалось отправить предложение печатной версии", order_id)
+
     # ------------------------------------------------------------------ лимиты
     def photo_supported(self) -> bool:
         # фото уходит только провайдерам с референсами, и не при тестовом бесплатном тексте Gemini
@@ -128,6 +279,10 @@ class OrderService:
 
     # ------------------------------------------------------------------ создание заказа
     async def create_order(self, user: TgUser, payload: dict, photo_raw: bytes | None) -> str:
+        # закрытый бот: книгу создаёт только тот, у кого есть книги на счёте (владелец всегда может, книги не тратит)
+        use_credit = self.closed() and not self.is_admin(user.id)
+        if use_credit and self.db.get_credits(user.id) <= 0:
+            raise self.closed_error()
         if not isinstance(payload, dict):
             raise ValidationError("Анкета пришла в неверном виде. Обновите приложение и попробуйте ещё раз.")
         has_photo = photo_raw is not None
@@ -151,8 +306,12 @@ class OrderService:
         if photo:
             (odir / "photo.jpg").write_bytes(photo)
         needs_payment = self.desk.required() and not check.paid
-        self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False), paid=check.paid,
-                             status="awaiting_payment" if needs_payment else "queued")
+        created = self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False),
+                                       paid=check.paid, status="awaiting_payment" if needs_payment else "queued",
+                                       use_credit=use_credit)       # проверка и списание книги — одной транзакцией
+        if not created:
+            shutil.rmtree(odir, ignore_errors=True)
+            raise self.closed_error()
         if not needs_payment:
             self._start(order_id)
         log.info("Заказ %s создан (возраст %s, язык %s, место %s, ценность %s, фото %s, оплата нужна: %s)",
@@ -258,12 +417,24 @@ class OrderService:
                                if (self.order_dir(row["id"]) / "receipt.jpg").exists() else None,
             }
         return {
-            "settings": {**self.desk.settings(), "qr_url": self.qr_url()},
+            "settings": self.admin_settings(),
             "pending": [item(r) for r in self.db.orders_with_status("payment_review")],
             "awaiting": [item(r) for r in self.db.orders_with_status("awaiting_payment", limit=30)],
             "recent": [item(r) for r in self.db.recent_paid(10)],
             "paid_today": self.db.count_paid_since(time.time() - DAY),
         }
+
+    def admin_settings(self) -> dict:
+        return {**self.desk.settings(), "qr_url": self.qr_url(), "closed": self.closed()}
+
+    def update_admin_settings(self, data) -> dict:
+        if not isinstance(data, dict):
+            raise ValidationError("Настройки пришли в неверном виде.")
+        closed = _parse_flag(data["closed"], "closed", "Закрытый бот") if "closed" in data else None
+        self.desk.update(data)                 # при ошибке в любом поле ничего не записывается, в том числе closed
+        if closed is not None:
+            self.set_closed(closed)
+        return self.admin_settings()
 
     def receipt_path(self, order_id: str) -> Path:
         if not ORDER_ID_RE.match(order_id):
@@ -319,11 +490,11 @@ class OrderService:
     async def _after_done(self, order_id: str, user_id: int, result: BookResult) -> None:
         if result.failed_pages:
             await self.notifier.notify_admin(
-                f"Заказ {order_id}: не нарисовались {len(result.failed_pages)} из 9 иллюстраций "
+                f"Заказ {order_id}: не нарисовались {len(result.failed_pages)} из {PAGES + 1} иллюстраций "
                 f"({', '.join(result.failed_pages)}). Вместо них — заглушки. " + "; ".join(result.failure_notes[:3]))
         await self._deliver(order_id, user_id, result.story, result.pdf_path)
 
-    async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path) -> bool:
+    async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True) -> bool:
         filename = safe_filename(story.title)
         caption = f"🎉 Готово! «{story.title}» — персональная сказка. Сохраните файл или откройте его на любом устройстве 💛"
         try:
@@ -332,6 +503,8 @@ class OrderService:
             log.exception("Заказ %s: ошибка отправки PDF в чат", order_id)
             ok = False
         self.db.update_order(order_id, delivered=1 if ok else 0)
+        if ok and offer:
+            await self._offer_print(order_id, user_id)
         try:
             await self.notifier.send_admin_book(pdf_path, filename, f"Копия книги. Заказ {order_id}, пользователь {user_id}.")
         except Exception:  # noqa: BLE001
@@ -344,7 +517,7 @@ class OrderService:
         if row["status"] != "done" or row["files_deleted"] or not pdf.exists():
             raise NotFoundError("Книга ещё не готова или уже удалена.")
         story = Story.from_dict(json.loads((self.order_dir(order_id) / "story.json").read_text(encoding="utf-8")))
-        return await self._deliver(order_id, viewer.id, story, pdf)
+        return await self._deliver(order_id, viewer.id, story, pdf, offer=False)
 
     # ------------------------------------------------------------------ чтение
     def _owned_order(self, order_id: str, user_id: int):
@@ -395,7 +568,7 @@ class OrderService:
         profile = Profile.from_dict(json.loads(row["profile_json"]))
 
         cover_ready = (odir / "cover.jpg").exists() and not files_deleted
-        pages_done = sum(1 for i in range(1, 9) if (odir / f"p{i}.jpg").exists()) if not files_deleted else 0
+        pages_done = sum(1 for i in range(1, PAGES + 1) if (odir / f"p{i}.jpg").exists()) if not files_deleted else 0
         pages = []
         if story:
             for i, page in enumerate(story.pages, start=1):
@@ -411,6 +584,7 @@ class OrderService:
             "progress": self._progress(status, cover_ready, pages_done),
             "cover_url": url("img/cover.jpg") if cover_ready else None,
             "cover_color": hex_color(band_color(str(odir / "cover.jpg"))) if cover_ready else None,
+            "cover_has_title": bool(read_cover_meta(odir).get("title_in_image")),
             "pages": pages,
             "book": book_labels(story, profile) if story else None,
             "pdf_url": url("book.pdf") if status == "done" and (odir / "book.pdf").exists() and not files_deleted else None,
@@ -430,7 +604,7 @@ class OrderService:
 
     @staticmethod
     def _progress(status: str, cover_ready: bool, pages_done: int) -> dict:
-        base = {"images_done": pages_done, "images_total": 8, "cover_ready": cover_ready}
+        base = {"images_done": pages_done, "images_total": PAGES, "cover_ready": cover_ready}
         if status == "awaiting_payment":
             return {**base, "percent": 0, "stage": -1, "label": "Ждём оплату"}
         if status == "payment_review":
@@ -442,12 +616,14 @@ class OrderService:
         if status == "drawing":
             if not cover_ready:
                 return {**base, "percent": 15, "stage": 1, "label": "Рисую обложку"}
-            return {**base, "percent": 20 + round(70 * pages_done / 8), "stage": 2,
-                    "label": f"Иллюстрации {pages_done} из 8"}
+            return {**base, "percent": 20 + round(70 * pages_done / PAGES), "stage": 2,
+                    "label": f"Иллюстрации {pages_done} из {PAGES}"}
         if status == "assembling":
             return {**base, "percent": 95, "stage": 3, "label": "Собираю PDF"}
         if status == "done":
             return {**base, "percent": 100, "stage": 4, "label": "Готово"}
+        if status == "cancelled":
+            return {**base, "percent": 0, "stage": -1, "label": "Отменено"}
         return {**base, "percent": 0, "stage": -1, "label": "Ошибка"}
 
     def active_order_id(self, user_id: int) -> str | None:
@@ -476,13 +652,31 @@ class OrderService:
         mark = {1: "👍 понравилась", 0: "👎 не понравилась", None: "оценки нет"}[rating]
         pay = {"yes": "купили бы", "maybe": "возможно купили бы", "no": "не купили бы", None: "—"}[would_pay]
         await self.notifier.notify_admin(
-            f"Отзыв по заказу {order_id}: {mark}; за {self.settings.price_text}: {pay}."
+            f"Отзыв по заказу {order_id}: {mark}; за {self.price_text()}: {pay}."
             + (f"\nКомментарий: {comment}" if comment else ""))
         log.info("Отзыв по заказу %s сохранён", order_id)
 
     # ------------------------------------------------------------------ уборка
+    def purge_old_photos(self) -> int:
+        """Фото ребёнка не живёт дольше суток при любом статусе заказа (оплата, очередь, сбой): считаем по времени файла."""
+        cutoff = time.time() - PHOTO_PURGE_AFTER
+        purged = 0
+        for path in self.orders_dir.iterdir():
+            photo = path / "photo.jpg"
+            try:
+                if path.is_dir() and photo.stat().st_mtime < cutoff:
+                    photo.unlink()
+                    purged += 1
+            except OSError:          # нет файла (его уже убрала генерация) или папку удалили в этот момент
+                continue
+        if purged:
+            log.info("Удалены фото старше суток: %s", purged)
+        return purged
+
     def cleanup(self) -> int:
-        """Удаляет файлы заказов старше KEEP_FILES_DAYS и стирает личные данные из анкеты."""
+        """Удаляет фото старше суток, файлы заказов старше KEEP_FILES_DAYS и стирает личные данные из анкеты.
+        Возвращает число удалённых заказов (фото в него не входят)."""
+        self.purge_old_photos()
         cutoff = time.time() - self.settings.keep_files_days * DAY
         removed = 0
         for row in self.db.orders_with_files_older_than(cutoff):

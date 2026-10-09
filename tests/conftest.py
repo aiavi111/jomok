@@ -87,6 +87,7 @@ class FakeNotifier:
         self.admin_texts: list[str] = []
         self.payments: list[tuple] = []
         self.user_texts: list[tuple] = []
+        self.print_offers: list[tuple] = []
 
     async def send_book(self, user_id, pdf_path, filename, caption) -> bool:
         self.books.append((user_id, Path(pdf_path), filename, caption))
@@ -103,6 +104,26 @@ class FakeNotifier:
 
     async def notify_user(self, user_id, text) -> None:
         self.user_texts.append((user_id, text))
+
+    async def send_print_offer(self, user_id, text, whatsapp_url) -> None:
+        self.print_offers.append((user_id, text, whatsapp_url))
+
+
+class PlainNotifier:
+    """Старый вид уведомителя: только три обязательных метода (без чеков, сообщений человеку и печатной версии)."""
+
+    def __init__(self):
+        self.books: list[tuple] = []
+
+    async def send_book(self, user_id, pdf_path, filename, caption) -> bool:
+        self.books.append((user_id, Path(pdf_path), filename, caption))
+        return True
+
+    async def send_admin_book(self, pdf_path, filename, caption) -> None:
+        return None
+
+    async def notify_admin(self, text: str) -> None:
+        return None
 
 
 class Env:
@@ -126,9 +147,13 @@ class Env:
         return data["order_id"]
 
 
-async def build_env(tmp_path: Path, *, text=None, image=None, notifier=None, **settings_over) -> Env:
+async def build_env(tmp_path: Path, *, text=None, image=None, notifier=None, closed: bool = False,
+                    **settings_over) -> Env:
+    """closed=False: бот открыт для всех (как до личных ссылок), так проще проверять остальное.
+    closed=True: настоящий режим по умолчанию, создавать книги могут только владелец и те, у кого есть книги."""
     settings = make_settings(tmp_path, **settings_over)
     db = Database(settings.data_dir / "test.sqlite3")
+    db.set_setting("closed_bot", "1" if closed else "0")
     notifier = notifier or FakeNotifier()
     service = OrderService(settings, db, text or MockTextProvider(), image or MockImageProvider(), notifier,
                            FreePayment(), load_or_create_secret(settings.data_dir))
@@ -136,6 +161,15 @@ async def build_env(tmp_path: Path, *, text=None, image=None, notifier=None, **s
     client = TestClient(TestServer(app))
     await client.start_server()
     return Env(settings, db, service, notifier, client)
+
+
+def make_service(tmp_path: Path, *, closed: bool = True, notifier=None, **settings_over) -> OrderService:
+    """Сервис без веб-сервера (для тестов бота и базы). По умолчанию бот закрыт, как в настоящей работе."""
+    settings = make_settings(tmp_path, **settings_over)
+    db = Database(settings.data_dir / "service.sqlite3")
+    db.set_setting("closed_bot", "1" if closed else "0")
+    return OrderService(settings, db, MockTextProvider(), MockImageProvider(), notifier or FakeNotifier(),
+                        FreePayment(), load_or_create_secret(settings.data_dir))
 
 
 @pytest.fixture
@@ -167,7 +201,7 @@ class ScriptedImage(MockImageProvider):
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         call_no = len(self.calls) + 1
-        self.calls.append({"prompt": prompt, "refs": list(refs) if refs else None, "label": label, "n": call_no})
+        self.calls.append({"prompt": prompt, "refs": list(refs) if refs else None, "label": label, "n": call_no, "size": size})
         try:
             error = self.fail(call_no, prompt, label)
             if error:

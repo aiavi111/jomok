@@ -79,6 +79,7 @@ class Settings:
 
     gemini_api_key: str = ""
     gemini_model: str = ""
+    text_proof_model: str = ""          # модель для вычитки кыргызского текста; пусто — основная модель текста
 
     cloudflare_account_id: str = ""
     cloudflare_api_token: str = ""
@@ -95,7 +96,7 @@ class Settings:
     image_concurrency: int = 3
     mock_delay_seconds: float = 1.2
 
-    price_text: str = "499 сом"
+    price_text: str = "590 сом"          # цена PDF-книги; владелец меняет её в админке
 
     @classmethod
     def from_env(cls, env_file: Path | None = ROOT / ".env") -> "Settings":
@@ -131,6 +132,7 @@ class Settings:
             openai_image_quality=_s("OPENAI_IMAGE_QUALITY", "medium").lower() or "medium",
             gemini_api_key=_s("GEMINI_API_KEY"),
             gemini_model=_s("GEMINI_MODEL"),
+            text_proof_model=_s("TEXT_PROOF_MODEL"),
             cloudflare_account_id=_s("CLOUDFLARE_ACCOUNT_ID"),
             cloudflare_api_token=_s("CLOUDFLARE_API_TOKEN"),
             cloudflare_image_model=_s("CLOUDFLARE_IMAGE_MODEL"),

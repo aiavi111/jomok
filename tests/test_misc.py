@@ -101,13 +101,14 @@ def test_empty_env_file_means_everything_runs_on_stubs(tmp_path, monkeypatch):
     from app.config import Settings, ConfigError
     for var in ("TELEGRAM_BOT_TOKEN", "WEBAPP_URL", "ADMIN_CHAT_ID", "TEXT_PROVIDER", "IMAGE_PROVIDER", "OPENAI_API_KEY",
                 "GEMINI_API_KEY", "CLOUDFLARE_API_TOKEN", "DEV_MODE", "MAX_BOOKS_PER_USER_PER_DAY", "KEEP_FILES_DAYS",
-                "OPENAI_TEXT_MODEL", "DATA_DIR", "PORT"):
+                "OPENAI_TEXT_MODEL", "TEXT_PROOF_MODEL", "DATA_DIR", "PORT"):
         monkeypatch.delenv(var, raising=False)
     empty = tmp_path / ".env"
     empty.write_text("")
     s = Settings.from_env(empty)
     assert (s.text_provider, s.image_provider, s.dev_mode) == ("mock", "mock", False)
     assert s.max_books_per_user_per_day == 3 and s.keep_files_days == 7 and s.port == 8080 and s.admin_chat_id is None
+    assert s.text_proof_model == ""                                  # отдельной модели корректора по умолчанию нет
     assert s.secrets == []
     monkeypatch.setenv("TEXT_PROVIDER", "chatgpt")
     with pytest.raises(ConfigError):
@@ -122,8 +123,10 @@ def test_env_file_values_are_read_but_system_variables_win(tmp_path, monkeypatch
     from app.config import Settings
     monkeypatch.delenv("TEXT_PROVIDER", raising=False)
     monkeypatch.delenv("MAX_BOOKS_PER_USER_PER_DAY", raising=False)
+    monkeypatch.delenv("TEXT_PROOF_MODEL", raising=False)
     env = tmp_path / ".env"
-    env.write_text("TEXT_PROVIDER=gemini   # комментарий\nMAX_BOOKS_PER_USER_PER_DAY=5\nDEV_MODE=1\n")
+    env.write_text("TEXT_PROVIDER=gemini   # комментарий\nMAX_BOOKS_PER_USER_PER_DAY=5\nDEV_MODE=1\nTEXT_PROOF_MODEL=proof-model\n")
     monkeypatch.setenv("MAX_BOOKS_PER_USER_PER_DAY", "9")
     s = Settings.from_env(env)
     assert s.text_provider == "gemini" and s.max_books_per_user_per_day == 9 and s.dev_mode is True
+    assert s.text_proof_model == "proof-model"

@@ -58,7 +58,7 @@ def prepare_photo(raw: bytes, max_side: int = 1024) -> bytes:
 
 
 def band_color(image_bytes_or_path) -> tuple[float, float, float]:
-    """Тёмный оттенок среднего цвета картинки (0..1 для RGB) — плашка под названием на обложке."""
+    """Тёмный оттенок среднего цвета картинки (0..1 для RGB): цвет плашки с названием на обложке."""
     with Image.open(image_bytes_or_path if not isinstance(image_bytes_or_path, bytes)
                     else io.BytesIO(image_bytes_or_path)) as im:
         small = im.convert("RGB").resize((1, 1), Image.BOX)

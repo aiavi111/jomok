@@ -15,7 +15,7 @@ from .textutil import cyrillic_ratio, word_count
 
 log = logging.getLogger(__name__)
 
-PAGES = 8
+PAGES = 8           # страниц в сказке (максимум по решению владельца); картинок на одну больше (обложка)
 
 # Лимиты из задания и допуск 30%: модели часто чуть превышают длину, а повтор запроса стоит денег.
 LIMITS = {
@@ -56,7 +56,9 @@ class Story:
 
     @classmethod
     def from_dict(cls, data: dict, language: str | None = None) -> "Story":
-        return validate_story(data, language)
+        """Читает уже сохранённую сказку (story.json). Число страниц не проверяется строго: книги, созданные
+        после смены числа страниц (раньше было 8, потом 10), остаются доступными для просмотра и повторной отправки."""
+        return validate_story(data, language, exact_pages=False)
 
 
 _FENCE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
@@ -95,8 +97,9 @@ def _text_field(data: dict, key: str, path: str, limit_key: str | None = None) -
     return value
 
 
-def validate_story(data: dict, language: str | None = None) -> Story:
-    """Проверяет JSON сказки. language ('ru'/'ky') включает проверку, что текст написан кириллицей."""
+def validate_story(data: dict, language: str | None = None, *, exact_pages: bool = True) -> Story:
+    """Проверяет JSON сказки. language ('ru'/'ky') включает проверку, что текст написан кириллицей.
+    exact_pages=False разрешает любое непустое число страниц (только для чтения старых сохранённых книг)."""
     if not isinstance(data, dict):
         raise StoryValidationError("Корень JSON должен быть объектом {...}.")
 
@@ -114,8 +117,8 @@ def validate_story(data: dict, language: str | None = None) -> Story:
 
     pages_raw = data.get("pages")
     if not isinstance(pages_raw, list):
-        raise StoryValidationError("Поле pages должно быть списком из 8 страниц.")
-    if len(pages_raw) != PAGES:
+        raise StoryValidationError(f"Поле pages должно быть списком из {PAGES} страниц.")
+    if len(pages_raw) != PAGES and (exact_pages or not pages_raw):
         raise StoryValidationError(f"В поле pages должно быть ровно {PAGES} страниц, а пришло {len(pages_raw)}.")
 
     pages: list[Page] = []

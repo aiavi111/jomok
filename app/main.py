@@ -15,7 +15,7 @@ from .logging_setup import setup_logging
 from .notify import NullNotifier
 from .payments import make_payment_provider
 from .providers import make_image_provider, make_text_provider
-from .service import OrderService
+from .service import CLEANUP_PERIOD, OrderService
 from .web import create_app
 
 log = logging.getLogger("skazka")
@@ -30,12 +30,13 @@ DEV_WARNING = """
 
 
 async def cleanup_loop(service: OrderService) -> None:
+    """Раз в час (CLEANUP_PERIOD): фото старше суток, файлы старых заказов, неоплаченные заказы."""
     while True:
         try:
             await asyncio.to_thread(service.cleanup)
         except Exception:  # noqa: BLE001
             log.exception("Ошибка при уборке старых файлов")
-        await asyncio.sleep(3600)
+        await asyncio.sleep(CLEANUP_PERIOD)
 
 
 async def amain() -> int:
@@ -90,6 +91,10 @@ async def amain() -> int:
 
     log.info("Сервер запущен: http://localhost:%s  (текст: %s, картинки: %s)",
              settings.port, settings.text_provider, settings.image_provider)
+    if service.closed():
+        log.info("Бот закрыт: книги создают только по личным ссылкам (ссылки делает владелец в админке) и сам владелец.")
+    else:
+        log.info("Бот открыт для всех (закрытый режим выключен в админке).")
     if settings.uses_mock:
         log.info("Работают заглушки (mock): ключи не нужны, картинки нарисованы Pillow.")
     if not settings.dev_mode:

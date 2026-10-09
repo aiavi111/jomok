@@ -11,6 +11,7 @@ from app.errors import ProviderError
 from app.links import make_token
 from app.providers.base import TextProvider
 from app.providers.text_mock import MockTextProvider
+from app.story import PAGES
 
 from .conftest import ADMIN_ID, SAMPLE, FakeNotifier, ScriptedImage, build_env, provider_error, sign_init_data, tma
 
@@ -46,9 +47,11 @@ async def test_config_describes_providers_limits_and_options(env):
     assert data["text_provider"] == "mock" and data["image_provider"] == "mock" and data["mock"] is True
     assert data["limits"]["books_per_day"] == 3 and data["limits"]["remaining_today"] == 3
     assert data["photo_supported"] is True and data["privacy_warning"] is None
-    assert data["price_text"] == "499 сом" and data["free_in_test"] is True and data["dev_mode"] is False
+    assert data["price_text"] == "590 сом" and data["free_in_test"] is True and data["dev_mode"] is False
     assert [p["id"] for p in data["options"]["places"]][0] == "mountains"
     assert data["bot_username"] == "test_bot" and data["active_order_id"] is None
+    assert data["access"] == {"granted": True, "credits": 0, "closed": False, "is_admin": False}   # тест-стенд открыт
+    assert data["print"]["enabled"] is False and data["print"]["whatsapp_url"] is None
 
 
 async def test_gemini_text_shows_privacy_warning_and_disables_photo(tmp_path):
@@ -75,7 +78,8 @@ async def test_full_order_flow_with_files_and_delivery(env):
     order_id = await env.create()
     order = await env.wait_done(order_id)
     assert order["status"] == "done" and order["progress"]["percent"] == 100
-    assert order["title"] and len(order["pages"]) == 8 and all(p["image_url"] for p in order["pages"])
+    assert order["title"] and len(order["pages"]) == PAGES and all(p["image_url"] for p in order["pages"])
+    assert order["progress"]["images_total"] == PAGES and order["progress"]["images_done"] == PAGES
     assert order["cover_url"] and order["pdf_url"] and order["book"]["caption"] == "Сказка для Айдара"
     assert order["delivered"] is True and order["error"] is None and "error_detail" not in order
     # PDF отправлен в чат владельца и копия — администратору
@@ -106,6 +110,9 @@ async def test_pages_appear_before_pdf_is_ready(tmp_path):
                 seen_partial = True
                 assert all(p["text"] for p in pages)            # текст есть сразу после написания
                 assert data["pdf_url"] is None and data["status"] == "drawing"
+                done = sum(1 for p in pages if p["image_url"])
+                assert data["progress"]["images_total"] == PAGES and data["progress"]["images_done"] == done
+                assert data["progress"]["label"] in (f"Иллюстрации {done} из {PAGES}", "Рисую обложку")
                 break
             if data["status"] in ("done", "error"):
                 break
@@ -141,7 +148,9 @@ async def test_bad_order_ids_and_file_names_never_touch_the_disk(env):
         assert resp.status in (404, 405)
     order_id = await env.create()
     await env.wait_done(order_id)
-    assert (await env.client.get(f"/api/orders/{order_id}/img/p9.jpg", headers=tma())).status == 404
+    assert (await env.client.get(f"/api/orders/{order_id}/img/p{PAGES}.jpg", headers=tma())).status == 200   # последняя страница
+    assert (await env.client.get(f"/api/orders/{order_id}/img/p{PAGES + 1}.jpg", headers=tma())).status == 404
+    assert (await env.client.get(f"/api/orders/{order_id}/img/p0.jpg", headers=tma())).status == 404
     assert (await env.client.get(f"/api/orders/{order_id}/img/story.jpg", headers=tma())).status == 404
 
 
@@ -268,9 +277,9 @@ async def test_one_broken_picture_does_not_break_the_book_and_admin_is_notified(
     try:
         order_id = await e.create()
         data = await e.wait_done(order_id)
-        assert data["status"] == "done" and data["pdf_url"] and len(data["pages"]) == 8
+        assert data["status"] == "done" and data["pdf_url"] and len(data["pages"]) == PAGES
         assert data["pages"][5]["image_url"]                       # на месте — заглушка
-        assert any("p6" in t and "заглушки" in t for t in e.notifier.admin_texts)
+        assert any("p6" in t and "заглушки" in t and f"1 из {PAGES + 1} иллюстраций" in t for t in e.notifier.admin_texts)
     finally:
         await e.service.shutdown(); await e.client.close(); e.db.close()
 
@@ -418,3 +427,33 @@ async def test_mini_app_is_served_with_cache_busting_version(env):
     assert (await env.client.get("/static/app.js")).status == 200
     assert (await env.client.get("/static/style.css")).status == 200
     assert (await env.client.get("/static/../app/config.py")).status in (403, 404)
+
+
+def test_progress_counts_page_illustrations_plus_cover():
+    from app.service import OrderService
+    done = PAGES // 2
+    half = OrderService._progress("drawing", True, done)
+    assert half["images_total"] == PAGES and half["images_done"] == done and half["label"] == f"Иллюстрации {done} из {PAGES}"
+    assert half["percent"] == 20 + round(70 * done / PAGES)
+    assert OrderService._progress("drawing", True, PAGES)["percent"] == 90
+    assert OrderService._progress("drawing", False, 0)["label"] == "Рисую обложку"
+    assert OrderService._progress("done", True, PAGES)["percent"] == 100
+
+
+@pytest.mark.parametrize("delta", [-2, +2])
+async def test_books_made_with_another_page_count_can_still_be_viewed_and_resent(env, delta):
+    """Книги, сделанные до смены числа страниц (было 8, потом 10), лежат на диске 7 дней и не должны ломать просмотр."""
+    order_id = await env.create()
+    await env.wait_done(order_id)
+    story_file = env.service.order_dir(order_id) / "story.json"
+    data = json.loads(story_file.read_text(encoding="utf-8"))
+    data["pages"] = (data["pages"] + data["pages"])[:PAGES + delta]
+    story_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    view = await (await env.client.get(f"/api/orders/{order_id}", headers=tma())).json()
+    assert view["status"] == "done" and len(view["pages"]) == PAGES + delta and view["pdf_url"]
+    resent = await env.client.post(f"/api/orders/{order_id}/send", headers=tma())
+    assert resent.status == 200
+    from app.errors import StoryValidationError
+    from app.story import validate_story
+    with pytest.raises(StoryValidationError):                   # а новая сказка от модели по-прежнему ровно из PAGES страниц
+        validate_story(data, "ru")

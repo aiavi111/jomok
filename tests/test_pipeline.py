@@ -9,6 +9,7 @@ from app.bookgen import build_book
 from app.errors import ProviderError
 from app.profile import Profile
 from app.providers.text_mock import MockTextProvider
+from app.story import PAGES
 
 from .conftest import SAMPLE, ScriptedImage, provider_error
 
@@ -27,9 +28,9 @@ async def test_failed_page_is_replaced_by_placeholder_and_book_is_still_built(tm
     result = await run(tmp_path, image, profile)
     assert result.failed_pages == ["p3"]
     assert "Страница 3" in result.failure_notes[0]
-    for name in ["cover"] + [f"p{i}" for i in range(1, 9)]:
+    for name in ["cover"] + [f"p{i}" for i in range(1, PAGES + 1)]:
         assert (tmp_path / "order" / f"{name}.jpg").stat().st_size > 5_000
-    assert pdf_pages(result.pdf_path) == 11
+    assert pdf_pages(result.pdf_path) == PAGES + 2     # развороты: обложка, страницы сказки, финал
 
 
 async def test_page_is_retried_three_times_then_succeeds(tmp_path, profile):
@@ -70,7 +71,7 @@ async def test_fatal_error_stops_the_order(tmp_path, profile):
 async def test_cover_failure_does_not_break_pages_and_cover_is_not_used_as_reference(tmp_path, profile):
     image = ScriptedImage(fail=lambda n, p, label: provider_error("сбой") if label == "Обложка" else None)
     result = await run(tmp_path, image, profile)
-    assert "cover" in result.failed_pages and pdf_pages(result.pdf_path) == 11
+    assert "cover" in result.failed_pages and pdf_pages(result.pdf_path) == PAGES + 2
     page_calls = [c for c in image.calls if c["label"].startswith("Страница")]
     assert all(c["refs"] is None for c in page_calls)                       # заглушка не может быть референсом
     assert all(result.story.hero_visual in c["prompt"] for c in page_calls)  # героя описываем текстом
@@ -79,7 +80,8 @@ async def test_cover_failure_does_not_break_pages_and_cover_is_not_used_as_refer
 async def test_prompt_order_is_scene_then_hero_then_style_without_references(tmp_path, profile):
     image = ScriptedImage(supports_reference=False)
     result = await run(tmp_path, image, profile, photo=b"\xff\xd8secret-photo")
-    pages = sorted((c for c in image.calls if c["label"].startswith("Страница")), key=lambda c: c["label"])
+    pages = sorted((c for c in image.calls if c["label"].startswith("Страница")), key=lambda c: int(c["label"].split()[-1]))
+    assert len(pages) == PAGES
     for number, call in enumerate(pages, start=1):
         prompt = call["prompt"]
         scene = result.story.pages[number - 1].scene
@@ -99,7 +101,7 @@ async def test_references_are_cover_and_photo_when_provider_supports_them(tmp_pa
     assert "reference photo" in cover_call["prompt"] and "no photorealism" in cover_call["prompt"]
     cover_bytes = (tmp_path / "order" / "cover.jpg").read_bytes()
     page_calls = [c for c in image.calls if c["label"].startswith("Страница")]
-    assert len(page_calls) == 8
+    assert len(page_calls) == PAGES
     for call in page_calls:
         assert call["refs"] == [cover_bytes, photo]
         assert "same character and the same outfit" in call["prompt"].lower()
@@ -143,7 +145,29 @@ async def test_no_more_than_three_images_are_drawn_at_once(tmp_path, profile):
     image = ScriptedImage(delay=0.05)
     await run(tmp_path, image, profile)
     assert 1 < image.max_active <= 3
-    assert len(image.calls) == 9
+    assert len(image.calls) == PAGES + 1            # обложка и страницы сказки
+
+
+async def test_every_illustration_is_requested_and_saved_as_a_1024_square(tmp_path, profile):
+    """Соотношение сторон 1:1: просим у провайдера квадрат, а если пришёл не квадрат — обрезаем по центру."""
+    import io
+
+    from PIL import Image
+
+    class Wide(ScriptedImage):
+        async def generate(self, prompt, refs=None, size="1024x1024", *, label=None):
+            await super().generate(prompt, refs, size, label=label)
+            out = io.BytesIO()
+            Image.new("RGB", (1536, 1024), (240, 180, 60)).save(out, "PNG")      # провайдер прислал «широкую» картинку
+            return out.getvalue()
+
+    image = Wide()
+    result = await run(tmp_path, image, profile)
+    assert len(image.calls) == PAGES + 1 and {c["size"] for c in image.calls} == {"1024x1024"}
+    for name in ["cover"] + [f"p{i}" for i in range(1, PAGES + 1)]:
+        with Image.open(tmp_path / "order" / f"{name}.jpg") as saved:
+            assert saved.size == (1024, 1024), name
+    assert pdf_pages(result.pdf_path) == PAGES + 2
 
 
 async def test_status_callbacks_in_order_and_images_saved_before_pdf(tmp_path, profile):

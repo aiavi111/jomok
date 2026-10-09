@@ -30,6 +30,13 @@ class ForbiddenError(AppError):
     code = "forbidden"
 
 
+class ClosedError(AppError):
+    """Бот закрыт: создавать книги могут только те, кто открыл личную ссылку (и владелец)."""
+
+    status = 403
+    code = "closed"
+
+
 class NotFoundError(AppError):
     status = 404
     code = "not_found"

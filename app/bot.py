@@ -1,4 +1,4 @@
-"""Telegram-бот (aiogram 3): приветствие, кнопка Mini App, /id, отправка готовой книги в чат."""
+"""Telegram-бот (aiogram 3): закрытый доступ по личным ссылкам, кнопка Mini App, /id, отправка готовой книги в чат."""
 from __future__ import annotations
 
 import asyncio
@@ -11,22 +11,26 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import (TelegramAPIError, TelegramForbiddenError, TelegramNetworkError,
                                 TelegramRetryAfter, TelegramUnauthorizedError)
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (BotCommand, BotCommandScopeChat, BotCommandScopeDefault, FSInputFile, InlineKeyboardButton,
-                           InlineKeyboardMarkup, MenuButtonWebApp, Message, WebAppInfo, CallbackQuery)
+                           InlineKeyboardMarkup, LinkPreviewOptions, MenuButtonWebApp, Message, WebAppInfo, CallbackQuery)
 
 from .config import Settings
 from .errors import AppError
+from .service import ACCESS_MESSAGE, CLOSED_TEXT, PRINT_BUTTON, whatsapp_url
+from .story import PAGES
+from .textutil import ru_plural
 
 log = logging.getLogger(__name__)
 
 BUTTON_TEXT = "✨ Создать сказку"
+PAGES_TEXT = f"{PAGES} {ru_plural(PAGES, 'страница', 'страницы', 'страниц')}"      # «8 страниц»: число берётся из story.PAGES
 WELCOME = (
-    "✨ <b>Привет! Я — сказочник.</b>\n\n"
+    "✨ <b>Привет! Это Bala story bot.</b>\n\n"
     "Я придумываю <b>персональные сказки</b>, где главный герой — ваш малыш 👶\n\n"
     "📝 Вы отвечаете на несколько вопросов — 1–2 минуты\n"
     "🎨 Я пишу сказку и рисую иллюстрации — 5–15 минут\n"
-    "📖 Присылаю красивую PDF-книгу прямо сюда\n\n"
+    f"📖 Присылаю PDF-книгу: {PAGES_TEXT} сказки с яркими иллюстрациями\n\n"
     "Сказки добрые, с поучительным смыслом — на русском или кыргызском, "
     "с горами, джайлоо и Иссык-Кулем 🏔️\n\n"
     "Нажмите кнопку ниже, и начнём 👇"
@@ -34,32 +38,56 @@ WELCOME = (
 NOT_READY = "🌙 Приложение пока не подключено. Загляните сюда чуть позже — мы скоро откроемся!"
 HELP = (
     "❓ <b>Как это работает</b>\n\n"
+    "Книги создаются по личной ссылке: её вы получаете после оплаты, напишите нам в WhatsApp.\n\n"
     "1️⃣ Нажмите кнопку «✨ Создать сказку» — откроется приложение.\n"
     "2️⃣ Ответьте на вопросы о малыше: имя, возраст, любимые занятия, характер.\n"
     "3️⃣ Подождите 5–15 минут — приложение можно закрыть.\n"
-    "4️⃣ Готовую книгу в PDF я пришлю сюда 💌\n\n"
+    f"4️⃣ Готовую книгу, PDF из {PAGES_TEXT} с яркими иллюстрациями, я пришлю сюда 💌\n\n"
     "Если кнопки не видно, отправьте /start."
 )
+CLOSED_REMINDER = "Сказки создаются в приложении — нажмите кнопку ниже 👇"
+INVALID_INVITE = "Эта ссылка уже использована или недействительна. Напишите нам, и мы пришлём новую."
+OWNER_INVITE = ("Вы владелец бота: доступ у вас открыт всегда. Эта ссылка осталась неиспользованной, "
+                "отправьте её клиенту.")
+
+
+def granted_text(credits: int) -> str:
+    return (f"🎉 Доступ открыт: у вас {credits} {ru_plural(credits, 'книга', 'книги', 'книг')}.\n\n"
+            "Нажмите кнопку ниже, ответьте на вопросы о малыше, и мы напишем для него сказку: "
+            f"PDF-книгу из {PAGES_TEXT} с яркими иллюстрациями 💛")
+
+
+def whatsapp_link(digits: str) -> str:
+    return f'<a href="{html.escape(whatsapp_url(digits, ACCESS_MESSAGE), quote=True)}">+{digits}</a>'
+
+
+def closed_text(whatsapp: str = "") -> str:
+    """Что видит человек без доступа; если задан номер владельца, он идёт ссылкой на WhatsApp."""
+    if not whatsapp:
+        return CLOSED_TEXT
+    return f"{CLOSED_TEXT[:-1]} {whatsapp_link(whatsapp)}."
+
 
 # Оформление профиля бота (лимиты Telegram: описание до 512, «о боте» до 120, имя до 64 символов)
-BOT_NAME = "Персональная сказка"
-SHORT_DESCRIPTION = "✨ Персональные сказки с вашим малышом в главной роли. PDF-книга с иллюстрациями за 5–15 минут"
+BOT_NAME = "Bala story bot"
+SHORT_DESCRIPTION = f"✨ Персональные сказки с малышом в главной роли: PDF-книга из {PAGES_TEXT}. Доступ по личной ссылке"
 DESCRIPTION = (
-    "✨ Персональные сказки, где главный герой — ваш малыш!\n\n"
+    "✨ Bala story bot: персональные сказки, где главный герой — ваш малыш!\n\n"
     "📝 Ответьте на несколько вопросов — всего 1–2 минуты\n"
     "🎨 Мы напишем сказку и нарисуем иллюстрации\n"
-    "📖 Через 5–15 минут пришлём красивую PDF-книгу прямо сюда\n\n"
-    "Добрые истории с поучительным смыслом, на русском или кыргызском 🏔️\n\n"
-    "Нажмите «Запустить», чтобы начать 👇"
+    f"📖 Через 5–15 минут пришлём PDF-книгу: {PAGES_TEXT} сказки с яркими иллюстрациями\n\n"
+    "Книга создаётся по личной ссылке, которую вы получите после оплаты: напишите нам в WhatsApp 💬\n\n"
+    "Добрые истории с поучительным смыслом, на русском или кыргызском 🏔️"
 )
 PUBLIC_COMMANDS = [
     BotCommand(command="start", description="✨ Создать сказку"),
     BotCommand(command="help", description="❓ Как это работает"),
 ]
 ADMIN_COMMANDS = [
-    BotCommand(command="admin", description="⚙️ Админка: оплаты и QR-код"),
+    BotCommand(command="admin", description="⚙️ Админка: ссылки, оплаты, QR-код"),
     BotCommand(command="id", description="🆔 Узнать свой ID (для владельца)"),
 ]
+NO_PREVIEW = LinkPreviewOptions(is_disabled=True)       # у ссылки на WhatsApp не нужна карточка
 
 
 def webapp_ready(url: str) -> bool:
@@ -78,12 +106,46 @@ def admin_url(url: str) -> str:
     return url + ("&" if "?" in url else "?") + "admin=1"
 
 
+def _user_id(message: Message) -> int:
+    return message.from_user.id if message.from_user else message.chat.id
+
+
+async def _answer_closed(message: Message, service) -> None:
+    await message.answer(closed_text(service.whatsapp()), link_preview_options=NO_PREVIEW)
+
+
 def build_router() -> Router:
     router = Router()
 
     @router.message(CommandStart())
-    async def on_start(message: Message, webapp_url: str) -> None:
+    async def on_start(message: Message, command: CommandObject, webapp_url: str, runtime: "BotRuntime") -> None:
+        service = runtime.service
+        if service is None:
+            await message.answer(NOT_READY)
+            return
+        user_id = _user_id(message)
         keyboard = webapp_keyboard(webapp_url)
+        arg = (command.args or "").strip()
+        if arg.startswith("inv_"):                       # личная ссылка: t.me/<бот>?start=inv_<токен>
+            token = arg[len("inv_"):]
+            if service.is_admin(user_id):               # владелец проверяет ссылку: не тратим её
+                await message.answer(OWNER_INVITE if service.invite_available(token) else INVALID_INVITE,
+                                     reply_markup=keyboard)
+                return
+            user = message.from_user
+            credits = await service.redeem_invite(token, user_id, first_name=user.first_name if user else None,
+                                                  username=user.username if user else None,
+                                                  language_code=user.language_code if user else None)
+            if credits is None:
+                wa = service.whatsapp()
+                await message.answer(INVALID_INVITE + (f" {whatsapp_link(wa)}" if wa else ""),
+                                     link_preview_options=NO_PREVIEW)
+                return
+            await message.answer(granted_text(credits) + ("" if keyboard else "\n\n" + NOT_READY), reply_markup=keyboard)
+            return
+        if not service.access_state(user_id)["granted"]:
+            await _answer_closed(message, service)
+            return
         await message.answer(WELCOME if keyboard else NOT_READY, reply_markup=keyboard)
 
     @router.message(Command("id"))
@@ -103,7 +165,7 @@ def build_router() -> Router:
             await message.answer(NOT_READY)
             return
         await message.answer(
-            "⚙️ <b>Админка</b>: чеки на подтверждение, QR-код, цена и текст для покупателей.",
+            "⚙️ <b>Админка</b>: личные ссылки доступа, цены, чеки на подтверждение и QR-код.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="⚙️ Открыть админку", web_app=WebAppInfo(url=admin_url(webapp_url)))]]))
 
@@ -140,16 +202,25 @@ def build_router() -> Router:
             pass
 
     @router.message(Command("help"))
-    async def on_help(message: Message, webapp_url: str) -> None:
-        await message.answer(HELP, reply_markup=webapp_keyboard(webapp_url))
+    async def on_help(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
+        service = runtime.service
+        if service is None:
+            await message.answer(NOT_READY)
+        elif not service.access_state(_user_id(message))["granted"]:
+            await _answer_closed(message, service)
+        else:
+            await message.answer(HELP, reply_markup=webapp_keyboard(webapp_url))
 
     @router.message()
-    async def on_other(message: Message, webapp_url: str) -> None:
-        keyboard = webapp_keyboard(webapp_url)
-        await message.answer(
-            "Сказки создаются в приложении — нажмите кнопку ниже 👇" if keyboard else NOT_READY,
-            reply_markup=keyboard,
-        )
+    async def on_other(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
+        service = runtime.service
+        if service is None:
+            await message.answer(NOT_READY)
+        elif not service.access_state(_user_id(message))["granted"]:
+            await _answer_closed(message, service)
+        else:
+            keyboard = webapp_keyboard(webapp_url)
+            await message.answer(CLOSED_REMINDER if keyboard else NOT_READY, reply_markup=keyboard)
 
     return router
 
@@ -184,6 +255,16 @@ class TelegramNotifier:
             await self.bot.send_message(user_id, html.escape(text)[:4000], parse_mode=None)
         except (TelegramForbiddenError, TelegramAPIError, TelegramNetworkError, OSError) as e:
             log.info("Сообщение пользователю не отправлено: %s", type(e).__name__)
+
+    async def send_print_offer(self, user_id: int, text: str, whatsapp_url: str | None) -> None:
+        """Второе сообщение под книгой: цены и кнопка-ссылка «Заказать в WhatsApp» (если номер владельца задан)."""
+        markup = None
+        if whatsapp_url:
+            markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=PRINT_BUTTON, url=whatsapp_url)]])
+        try:
+            await self.bot.send_message(user_id, text[:4000], reply_markup=markup, parse_mode=None)
+        except (TelegramAPIError, TelegramNetworkError, OSError) as e:
+            log.info("Предложение печатной версии не отправлено: %s", type(e).__name__)
 
     async def _send_document(self, chat_id: int, pdf_path: Path, filename: str, caption: str) -> None:
         document = FSInputFile(pdf_path, filename=filename)
