@@ -783,3 +783,7 @@ label.btn, label.photo-pick { cursor: pointer; user-select: none; -webkit-user-s
   .opt.style-opt .e { width: 60px; height: 60px; border-radius: 18px; }
   .opt.style-opt .e .ic { width: 38px; height: 38px; }
 }
+
+/* главный шаг «Что обязательно должно быть в книге?»: поле крупнее */
+.textarea.big { min-height: 200px; font-size: 17px; line-height: 1.45; }
+.notice.copyright { margin: 16px 0 0; }

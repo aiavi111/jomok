@@ -40,8 +40,9 @@ def test_miniapp_says_book_not_tale():
 
 def test_questionnaire_has_topic_and_extras_steps_after_value():
     steps = between(JS, "function buildSteps()", "function startWizard")
-    order = [steps.index(f"'{name}'") for name in ("place", "value", "topic", "extras", "islamic", "language", "dedication", "summary")]
+    order = [steps.index(f"'{name}'") for name in ("value", "topic", "extras", "islamic", "language", "dedication", "summary")]
     assert order == sorted(order)
+    assert "'place'" not in steps                                      # место родитель описывает в пожеланиях
     assert "'appearance'" in steps and "'photo'" not in steps          # фото живёт внутри шага «Внешность»
     for name in ("topic", "extras"):
         assert re.search(rf"^    {name}: \{{", JS, re.MULTILINE), f"нет шага {name}"
@@ -57,20 +58,22 @@ def test_topic_step_uses_server_topics_with_icons_and_custom_input():
 
 
 def test_extras_step_texts_and_limits():
-    for text in ("Что ещё добавить?", "Что вы хотите увидеть в книге?", "Любимые герои, животные, игрушки",
-                 "Хочу, чтобы Алихан водил экскаватор и помогал зайчику", "например: зайчик, экскаватор, динозавр",
-                 "Героев известных мультфильмов мы заменяем на похожих, но оригинальных персонажей"):
+    for text in ("Что обязательно должно быть в книге?", "Что вы хотите увидеть в книге?",
+                 "Напишите, что важно: место (например, стадион), одежда (номер 7 на футболке), что делает герой. Всё это попадёт в книгу",
+                 "Хочу, чтобы Алихан водил экскаватор и помогал зайчику"):
         assert text in JS, text
-    assert "request_max', 300" in JS and "favorites_max', 120" in JS
+    for gone in ("Любимые герои, животные, игрушки", "Названия любимых мультиков", "Любимые мультики", "favorites_max", "cartoons_max"):
+        assert gone not in JS, gone
+    assert "request_max', 300" in JS
     assert len(re.findall(r"label: '[^']+', text:", between(JS, "function requestExamples()", "function syncExamples"))) == 4
 
 
 def test_payload_sends_new_fields_in_contract_order():
     body = between(JS, "function payload()", "async function submit")
-    positions = [body.index(key) for key in ("topic:", "topic_custom:", "request:", "favorites:")]
+    positions = [body.index(key) for key in ("topic:", "topic_custom:", "request:")]
     assert positions == sorted(positions)
     assert "a.topic === 'custom' ? a.topic_custom.trim() : ''" in body       # свою тему шлём только при topic = custom
-    for field in ("topic: 'topic'", "topic_custom: 'topic'", "request: 'extras'", "favorites: 'extras'"):
+    for field in ("topic: 'topic'", "topic_custom: 'topic'", "request: 'extras'"):
         assert field in JS, field                                              # ошибка сервера возвращает на нужный шаг
 
 
@@ -154,7 +157,7 @@ def test_every_used_icon_is_drawn_and_server_ids_have_icons():
     mapped |= set(re.findall(r": '(\w+)'", between(JS, "const STEP_ICON", "};")))
     mapped |= set(re.findall(r"\bi: '(\w+)'", JS))
     assert used and mapped and (used | mapped) - names == set(), f"нет рисунка для: {sorted((used | mapped) - names)}"
-    for ids, table in ((options.PLACES, "const PLACE_META"), (options.VALUES, "const VALUE_META"), (options.TOPICS, "const TOPIC_ICON"),
+    for ids, table in ((options.VALUES, "const VALUE_META"), (options.TOPICS, "const TOPIC_ICON"),
                        (options.WORLDS, "const WORLD_ICON"), (options.TRAITS, "const TRAIT_ICON")):
         block = between(JS, table, "\n  };") if table.endswith("META") else between(JS, table, "\n")
         for key in ids:
@@ -208,3 +211,21 @@ def test_touch_targets_and_motion_floor_in_css():
     assert "min-height: 56px" in between(CSS, ".btn {", "}") and "min-height: 44px" in between(CSS, ".back {", "}")
     assert re.search(r"\.pip \{[^}]*width: 44px; height: 44px", CSS) and "inset: -6px -4px" in between(CSS, ".switch::before", "}")
     assert "@media (prefers-reduced-motion: reduce)" in CSS and ":focus-visible { outline: 3px solid var(--brand)" in CSS
+
+
+def test_copyright_warning_on_world_extras_and_summary_without_duplicates():
+    warning = "Нельзя заказывать реальных знаменитостей и героев мультфильмов и кино (их защищают авторские права). Вместо них мы придумаем похожего, но своего героя."
+    assert JS.count(warning) == 1                                       # один текст, один источник
+    assert "const copyrightNotice" in JS and 'class="notice warn copyright"' in JS and "icon('warn')" in between(JS, "const copyrightNotice", "\n")
+    for step in ("world: {", "extras: {"):
+        assert "copyrightNotice()" in between(JS, f"    {step}", "      valid: () => true"), step
+    assert "a.request.trim() ? copyrightNotice()" in between(JS, "function summaryHtml()", "/* --- чипы")
+    assert "чужих мультперсонажей использовать нельзя" not in JS
+    assert "Героев известных мультфильмов мы заменяем" not in JS
+
+
+def test_removed_fields_are_not_in_wizard_or_payload():
+    body = between(JS, "function payload()", "async function submit")
+    for gone in ("place", "favorites", "cartoons"):
+        assert gone not in body, gone
+    assert "['place'," not in JS and "'Место'" not in JS

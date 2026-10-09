@@ -110,3 +110,58 @@ async def test_no_sheet_when_the_hero_is_alone(tmp_path):
     image = SheetImage(supports_reference=True)
     await build_book(Profile.from_payload(SAMPLE), Alone(), image, tmp_path / "order", image_sem=asyncio.Semaphore(3), mock=True)
     assert all(c["label"] != "Лист героев" for c in image.calls)
+
+
+# ----------------------------------------------------------------------------- пожелание родителей обязательно
+import pytest as _pytest
+from app.errors import StoryValidationError
+
+
+def _football(profile_extra=None, **over):
+    profile = Profile.from_payload({**SAMPLE, "request": "Артём играет на большом стадионе в футболке с номером 7", **(profile_extra or {})})
+    data = _answer(requirements=[{"what": "большой стадион", "en": "stadium"}], **over)
+    for page in data["pages"]:
+        page["scene"] = "A boy in a red jersey number 7 on a huge stadium with the helper beside him."
+    return profile, data
+
+
+def test_request_details_that_reach_the_scenes_are_accepted():
+    profile, data = _football()
+    assert assemble(profile, data).pages[0].scene.count("stadium") == 1
+
+
+def test_request_without_requirements_is_rejected():
+    profile, data = _football()
+    data["requirements"] = []
+    with _pytest.raises(StoryValidationError, match="requirements"):
+        assemble(profile, data)
+
+
+def test_request_detail_lost_in_the_scenes_is_rejected():
+    profile, data = _football()
+    for page in data["pages"][2:]:
+        page["scene"] = "A boy walks in a green forest with the helper beside him."
+    with _pytest.raises(StoryValidationError, match="stadium"):
+        assemble(profile, data)
+
+
+def test_celebrity_in_requirements_is_rejected():
+    profile, data = _football()
+    data["requirements"] = [{"what": "играть с Роналду", "en": "stadium"}]
+    with _pytest.raises(StoryValidationError, match="знаменитость"):
+        assemble(profile, data)
+
+
+def test_helper_must_be_on_nearly_every_picture():
+    profile, data = _football()
+    for page in data["pages"][:4]:
+        page["scene"] = "A boy in a red jersey number 7 alone on a huge stadium."
+    with _pytest.raises(StoryValidationError, match="helper"):
+        assemble(profile, data)
+
+
+def test_default_place_never_reaches_the_writer():
+    from app.simple_writer import user_prompt
+    profile = Profile.from_payload({**SAMPLE, "request": "Артём играет на стадионе"})
+    prompt = user_prompt(profile, None)
+    assert "место действия" not in prompt and "стадионе" in prompt and "Место действия выбери сам" in prompt

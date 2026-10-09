@@ -129,6 +129,8 @@ class Profile:
             raise ValidationError(f"Выберите не больше {LIST_MAX} черт характера.", field="traits")
 
         place = data.get("place")
+        if place is None or place == "":
+            place = "mountains"                                # шаг «Место» убран из анкеты: место родитель описывает в пожеланиях
         if not _known(place, options.PLACES):
             raise ValidationError("Выберите, где происходит действие книги.", field="place")
         place_custom = text("place_custom", "Место") if place == "custom" else ""

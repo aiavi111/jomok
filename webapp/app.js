@@ -182,15 +182,6 @@
   }
 
   /* ---- какая иконка к какому варианту (сервер присылает id; если иконки нет — нейтральная generic) ---- */
-  const PLACE_META = {
-    mountains: { i: 'mountains', sub: 'снежные вершины и горные ручьи' },
-    yurt: { i: 'yurt', sub: 'зелёные луга, кони и дымок над юртой' },
-    issykkul: { i: 'lake', sub: 'синее озеро и горы вдали' },
-    silkroad: { i: 'bazaar', sub: 'караваны, сладкие дыни и яркие лавки' },
-    space: { i: 'rocket', sub: 'звёзды, планеты и уютный корабль' },
-    underwater: { i: 'fish', sub: 'кораллы, рыбки и лучи солнца' },
-    custom: { i: 'pencil', sub: 'опишите место сами' },
-  };
   const VALUE_META = {
     kindness: { i: 'heart', sub: 'делиться теплом и помогать другим' },
     honesty: { i: 'truth', sub: 'говорить правду, даже когда непросто' },
@@ -206,10 +197,13 @@
   const LIKE_ICON = { 'Лошади': 'horseshoe', 'Животные': 'paw', 'Динозавры': 'dino', 'Машинки': 'car', 'Рисование': 'brush', 'Музыка': 'note', 'Футбол': 'ball', 'Куклы': 'doll', 'Космос': 'planet', 'Конструктор': 'brick', 'Книги': 'book', 'Сладости': 'candy' };
   const TRAIT_ICON = { kind: 'heart', brave: 'flag', curious: 'search', funny: 'laugh', shy: 'shy', stubborn: 'anchor', caring: 'sprout' };
   const STEP_ICON = {
-    name: 'child', age: 'cake', gender: 'friends', appearance: 'portrait', likes: 'heart', traits: 'smile', place: 'pin', value: 'bulb',
+    name: 'child', age: 'cake', gender: 'friends', appearance: 'portrait', likes: 'heart', traits: 'smile', value: 'bulb',
     topic: 'book', world: 'rainbow', style: 'palette', extras: 'bubble', islamic: 'moon', language: 'globe', dedication: 'envelope', photo: 'camera',
     summary: 'gift',
   };
+  // предупреждение про реальных людей и чужих героев: на шагах «Мир», «Что ещё добавить?» и в сводке
+  const COPYRIGHT_WARNING = 'Нельзя заказывать реальных знаменитостей и героев мультфильмов и кино (их защищают авторские права). Вместо них мы придумаем похожего, но своего героя.';
+  const copyrightNotice = () => '<div class="notice warn copyright" role="note">' + icon('warn') + '<span>' + esc(COPYRIGHT_WARNING) + '</span></div>';
   const iconOf = (map, id, fallback) => (map && map[id]) || fallback || 'generic';
   // сообщение об ошибке: значок + текст (текст всегда экранируем)
   const errorHtml = (text) => icon('error') + '<span>' + esc(text) + '</span>';
@@ -258,7 +252,7 @@
   function freshAnswers(keep) {
     return Object.assign({
       name: '', age: null, gender: null, hair: '', eyes: '', clothes: '', likes: [], traits: [],
-      place: null, place_custom: '', value: null, topic: null, topic_custom: '', world: null, cartoons: '', style: null, request: '', favorites: '',
+      value: null, topic: null, topic_custom: '', world: null, style: null, request: '',
       islamic: false, headscarf: false, language: null, dedication: '', photo_consent: false,
     }, keep || {});
   }
@@ -274,11 +268,6 @@
 
   const opts = () => S.cfg.options;
   const traitLabel = (t) => (S.a.gender === 'girl' ? t.girl : t.boy);
-  const placeLabel = () => {
-    if (S.a.place === 'custom') return S.a.place_custom.trim();
-    const p = opts().places.find((x) => x.id === S.a.place);
-    return p ? p.label : '';
-  };
 
   // Темы книги и пожелания: бэкенд мог ещё не прислать новые поля, поэтому читаем осторожно
   const topicList = () => (S.cfg && S.cfg.options && Array.isArray(S.cfg.options.topics) ? S.cfg.options.topics : []);
@@ -310,8 +299,6 @@
     return v > 0 ? v : fallback;
   };
   const requestMax = () => limitOf('request_max', 300);
-  const favoritesMax = () => limitOf('favorites_max', 120);
-  const cartoonsMax = () => limitOf('cartoons_max', 120);
   const textMax = () => limitOf('text_max', 120);
   const pagesCount = () => {
     const n = S.cfg && S.cfg.book_format && Number(S.cfg.book_format.pages);
@@ -582,18 +569,6 @@
       valid: () => S.a.traits.length >= 1,
       mount() { refreshChips('traits'); },
     },
-    place: {
-      title: () => 'Где случится приключение?',
-      hint: () => 'Это место появится на всех картинках — выбирайте самое любимое.',
-      auto: true,
-      body: () => '<div class="opts" role="radiogroup" aria-label="Место действия">' +
-        choiceButtons('place', opts().places.map((p) => {
-          const m = PLACE_META[p.id] || { i: 'generic', sub: '' };
-          return { id: p.id, html: optionHtml(m.i, p.label, m.sub) };
-        }), 'opt') + '</div><div id="custom-place"></div>',
-      valid: () => !!S.a.place && (S.a.place !== 'custom' || S.a.place_custom.trim().length > 0),
-      mount() { refreshCustom('place', false); },
-    },
     value: {
       title: () => 'Чему научит книга?',
       hint: () => 'Герой не станет читать нотации — он покажет это своим поступком.',
@@ -620,16 +595,12 @@
     world: {
       optional: true,
       title: () => 'Какой мир любит ' + nameShown() + '?',
-      hint: () => 'Выберите, на что похоже. Герои будут похожи по духу, но свои: чужих мультперсонажей использовать нельзя',
+      hint: () => 'Выберите, на что похоже. Герои будут похожи по духу, но свои.',
       body: () => '<div class="opts" role="radiogroup" aria-label="Мир, который любит малыш">' +
         choiceButtons('world', worldList().map((w) => {
           return { id: w.id, html: optionHtml(iconOf(WORLD_ICON, w.id), w.label, w.hint) };
-        }), 'opt') + '</div><div id="custom-world" aria-live="polite"></div>' +
-        '<label class="field tight cartoons"><span class="lbl" id="l-cart">Названия любимых мультиков или героев</span>' +
-        '<input class="input" id="in-cart" data-field="cartoons" maxlength="' + cartoonsMax() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="l-cart" aria-describedby="n-cart c-cart" placeholder="например: Маша и Медведь, Фиксики" value="' + esc(S.a.cartoons) + '"></label>' +
-        '<div class="field-foot"><p class="note" id="n-cart">Мы возьмём характер и настроение, а нарисуем своих героев</p>' +
-        '<span class="counter" id="c-cart">' + S.a.cartoons.length + '/' + cartoonsMax() + '</span></div>',
-      isEmpty: () => !S.a.world && !S.a.cartoons.trim(),
+        }), 'opt') + '</div><div id="custom-world" aria-live="polite"></div>' + copyrightNotice(),
+      isEmpty: () => !S.a.world,
       valid: () => true,
       mount() { refreshWorldNote(); const h = $('h1.q'); if (h) h.focus({ preventScroll: true }); },
     },
@@ -646,19 +617,16 @@
     },
     extras: {
       optional: true,
-      title: () => 'Что ещё добавить?',
-      hint: () => 'Необязательно: расскажите, что обязательно должно быть в книге. Этот шаг можно пропустить.',
-      body: () => '<label class="field tight"><span class="lbl" id="l-req">Что вы хотите увидеть в книге?</span>' +
-        '<textarea class="textarea" id="in-req" data-field="request" maxlength="' + requestMax() + '" rows="4" aria-labelledby="l-req" aria-describedby="c-req" placeholder="Хочу, чтобы Алихан водил экскаватор и помогал зайчику">' + esc(S.a.request) + '</textarea></label>' +
+      title: () => 'Что обязательно должно быть в книге?',
+      hint: () => 'Напишите, что важно: место (например, стадион), одежда (номер 7 на футболке), что делает герой. Всё это попадёт в книгу',
+      body: () => '<label class="field tight req-main"><span class="lbl" id="l-req">Что вы хотите увидеть в книге?</span>' +
+        '<textarea class="textarea big" id="in-req" data-field="request" maxlength="' + requestMax() + '" rows="8" aria-labelledby="l-req" aria-describedby="c-req" placeholder="Хочу, чтобы Алихан водил экскаватор и помогал зайчику">' + esc(S.a.request) + '</textarea></label>' +
         '<div class="counter" id="c-req">' + S.a.request.length + '/' + requestMax() + '</div>' +
         '<p class="chips-meta ex-meta" id="l-ex">Нажмите, чтобы добавить в текст:</p>' +
         '<div class="chips ex-chips" id="chips-ex" role="group" aria-labelledby="l-ex">' + requestExamples().map((x, i) =>
           '<button type="button" class="chip" data-act="req-example" data-i="' + i + '" aria-pressed="' + S.a.request.includes(x.text) + '">' + icon(x.i) + esc(x.label) + '</button>').join('') + '</div>' +
-        '<label class="field tight fav"><span class="lbl" id="l-fav">Любимые герои, животные, игрушки</span>' +
-        '<input class="input" id="in-fav" data-field="favorites" maxlength="' + favoritesMax() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="l-fav" aria-describedby="c-fav" placeholder="например: зайчик, экскаватор, динозавр" value="' + esc(S.a.favorites) + '"></label>' +
-        '<div class="counter" id="c-fav">' + S.a.favorites.length + '/' + favoritesMax() + '</div>' +
-        '<div class="notice" role="note">' + icon('info') + '<span>Героев известных мультфильмов мы заменяем на похожих, но оригинальных персонажей.</span></div>',
-      isEmpty: () => !S.a.request.trim() && !S.a.favorites.trim(),
+        copyrightNotice(),
+      isEmpty: () => !S.a.request.trim(),
       valid: () => true,
     },
     islamic: {
@@ -755,14 +723,11 @@
     const value = (opts().values.find((v) => v.id === a.value) || {}).label || '';
     const lang = (opts().languages.find((l) => l.id === a.language) || {}).label || '';
     const look = [S.photo ? 'по фото' : '', a.hair, a.eyes, a.clothes].map((x) => x.trim()).filter(Boolean).join('; ');
-    const wishes = !a.request.trim() && !a.favorites.trim()
-      ? [['extras', 'Пожелания', 'нет']]
-      : [a.request.trim() && ['extras', 'Пожелания', a.request.trim()], a.favorites.trim() && ['extras', 'Любимые герои', a.favorites.trim()]].filter(Boolean);
-    // мир и мультики: строка «Мир» есть всегда (даже «не выбран», чтобы её можно было изменить), «Любимые мультики» только если вписаны
+    const wishes = [['extras', 'Пожелания', a.request.trim() || 'нет']];
+    // мир: строка «Мир» есть всегда (даже «не выбран», чтобы её можно было изменить)
     const world = worldLabel()
       ? worldLabel() + (a.world === 'custom' && !a.request.trim() ? ': опишите в пожеланиях' : '')
       : 'не выбран';
-    const cartoons = a.cartoons.trim() ? [['world', 'Любимые мультики', a.cartoons.trim()]] : [];
     const style = styleLabel() || (styleList().length ? 'не выбран' : '');
     const rows = [
       ['name', 'Имя', nameClean()],
@@ -771,11 +736,9 @@
       ['appearance', 'Внешность', look || 'не указана'],
       ['likes', 'Любит', a.likes.join(', ')],
       ['traits', 'Характер', traits],
-      ['place', 'Место', placeLabel()],
       ['value', 'Чему учит книга', value],
       ['topic', 'Тема книги', topicLabel()],
       ['world', 'Мир', world],
-      ...cartoons,
       ['style', 'Стиль', style],
       ...wishes,
       ['islamic', 'Исламский режим', a.islamic ? (a.gender === 'girl' && a.headscarf ? 'Да, героиня в платке' : 'Да') : 'Нет'],
@@ -789,11 +752,12 @@
     const cost = acc && acc.closed && !isAdmin() && typeof acc.credits === 'number'
       ? 'Будет использована 1 книга по вашей ссылке (доступно: ' + acc.credits + '). '
       : 'Цена: ' + esc(S.cfg.price_text) + '. ';
+    const copyright = a.request.trim() ? copyrightNotice() : '';
     return warn + promise + '<ul class="summary">' + rows.filter((r) => S.steps.includes(r[0])).map((r) => {
-      return '<li><span class="e" aria-hidden="true">' + icon(iconOf(STEP_ICON, r[0])) + '</span><span class="k">' + r[1] + '</span><span class="v' + (r[1] === 'Пожелания' || r[1] === 'Любимые мультики' ? ' clamp' : '') + '">' + esc(r[2]) + '</span>' +
+      return '<li><span class="e" aria-hidden="true">' + icon(iconOf(STEP_ICON, r[0])) + '</span><span class="k">' + r[1] + '</span><span class="v' + (r[1] === 'Пожелания' ? ' clamp' : '') + '">' + esc(r[2]) + '</span>' +
         '<button type="button" class="edit" data-act="edit" data-step="' + r[0] + '" aria-label="Изменить: ' + r[1] + '">Изменить</button></li>';
     }).join('') + '</ul>' +
-      '<p class="sum-note">' + cost + 'Готовую книгу пришлём в этот чат.</p>';
+      copyright + '<p class="sum-note">' + cost + 'Готовую книгу пришлём в этот чат.</p>';
   }
 
   /* --- чипы --- */
@@ -843,7 +807,6 @@
 
   /* --- место и тема: свой вариант (поле появляется под списком) --- */
   const CUSTOM = {
-    place: { box: 'custom-place', input: 'in-cp', lbl: 'l-cp', label: 'Опишите место', field: 'place_custom', ph: 'Например: сад у бабушки в деревне', max: () => 120 },
     topic: { box: 'custom-topic', input: 'in-ct', lbl: 'l-ct', label: 'Опишите тему', field: 'topic_custom', ph: 'Например: строим снежную крепость', max: textMax },
   };
   function refreshCustom(kind, focus) {
@@ -940,7 +903,7 @@
 
   /* --- навигация по шагам --- */
   function buildSteps() {
-    const list = ['name', 'age', 'gender', 'appearance', 'likes', 'traits', 'place', 'value'];
+    const list = ['name', 'age', 'gender', 'appearance', 'likes', 'traits', 'value'];
     if (topicList().length) list.push('topic');           // старый сервер без тем: шаг пропускаем
     if (worldList().length) list.push('world');           // старый сервер без миров: шаг пропускаем
     if (styleList().length) list.push('style');           // старый сервер без стилей: шаг пропускаем
@@ -1042,7 +1005,7 @@
     S.a[field] = value;
     haptic.select();
     $$('[data-field="' + field + '"]').forEach((b) => b.setAttribute('aria-checked', String(value != null && String(b.dataset.value) === String(value))));
-    if (field === 'place' || field === 'topic') refreshCustom(field, value === 'custom');
+    if (field === 'topic') refreshCustom(field, value === 'custom');
     if (field === 'world') refreshWorldNote();
     updateFooter();
     const st = STEP[S.steps[S.idx]];
@@ -1059,15 +1022,14 @@
     const body = {
       name: nameClean(), age: a.age, gender: a.gender,
       appearance: { hair: a.hair.trim(), eyes: a.eyes.trim(), clothes: a.clothes.trim() },
-      likes: a.likes, traits: a.traits, place: a.place, place_custom: a.place === 'custom' ? a.place_custom.trim() : '',
+      likes: a.likes, traits: a.traits,
       value: a.value,
-      topic: a.topic, topic_custom: a.topic === 'custom' ? a.topic_custom.trim() : '', request: a.request.trim(), favorites: a.favorites.trim(),
+      topic: a.topic, topic_custom: a.topic === 'custom' ? a.topic_custom.trim() : '', request: a.request.trim(),
       islamic: a.islamic, headscarf: a.headscarf, language: a.language,
       dedication: a.dedication.trim(), photo_consent: !!(S.photo && a.photo_consent),
     };
     if (worldList().length) {                      // сервер без миров этих полей не знает: не шлём
       body.world = worldPicked() ? a.world : null; // пропустили шаг: null
-      body.cartoons = a.cartoons.trim();
     }
     if (styleList().length) body.style = stylePicked() ? a.style : defaultStyle();   // сервер без стилей поля не знает: не шлём
     return body;
@@ -1112,7 +1074,7 @@
       }
     }
   }
-  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', place: 'place', place_custom: 'place', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', cartoons: 'world', style: 'style', request: 'extras', favorites: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
+  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', style: 'style', request: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
 
   /* ===================================================================== ожидание */
   const STAGES = [['pencil', 'Пишу книгу'], ['image', 'Рисую обложку'], ['palette', 'Иллюстрации'], ['book', 'Собираю книгу']];
@@ -1969,8 +1931,6 @@
     }
     if (field === 'dedication') $('#c-ded').textContent = el.value.length + '/120';
     if (field === 'request') { $('#c-req').textContent = el.value.length + '/' + requestMax(); syncExamples(); }
-    if (field === 'favorites') $('#c-fav').textContent = el.value.length + '/' + favoritesMax();
-    if (field === 'cartoons') $('#c-cart').textContent = el.value.length + '/' + cartoonsMax();
     updateFooter();
   });
 

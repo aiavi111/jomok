@@ -200,3 +200,18 @@ def test_trait_ids_of_the_wrong_type_are_a_validation_error_too():
     with pytest.raises(ValidationError) as err:
         make(traits=[["kind"]])
     assert err.value.field == "traits"
+
+
+# ----------------------------------------------------------------------------- убранные из анкеты поля
+def test_place_favorites_cartoons_are_optional_for_new_clients():
+    data = {k: v for k, v in SAMPLE.items() if k not in ("place", "place_custom", "favorites", "cartoons")}
+    profile = Profile.from_payload(data)
+    assert profile.place == "mountains" and profile.place_label and profile.favorites == "" and profile.cartoons == ""
+    assert Profile.from_payload({**data, "place": ""}).place == "mountains"
+    with pytest.raises(ValidationError):
+        Profile.from_payload({**data, "place": "nowhere"})                   # чужое значение по-прежнему ошибка
+
+
+def test_old_clients_still_send_place_favorites_cartoons():
+    profile = make(place="space", favorites="Зайчик", cartoons="Фиксики")
+    assert profile.place == "space" and profile.favorites == "Зайчик" and profile.cartoons == "Фиксики"
