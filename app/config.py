@@ -83,6 +83,7 @@ class Settings:
     gemini_api_key: str = ""
     gemini_model: str = ""
     text_proof_model: str = ""          # модель для вычитки кыргызского текста; пусто — основная модель текста
+    pdf_layout: str = "book"            # book — вертикальный PDF для чтения (по умолчанию); spreads — широкие развороты 21×21 как для печати
     writer_mode: str = "simple"         # simple — один запрос писателя (по умолчанию); legacy — старый конвейер из нескольких запросов
     openai_text_effort: str = "medium"  # режим размышления модели текста (low | medium | high | xhigh); пусто — по умолчанию модели. high на кыргызском не укладывался в таймаут
 
@@ -166,6 +167,7 @@ class Settings:
             gemini_model=_s("GEMINI_MODEL"),
             text_proof_model=_s("TEXT_PROOF_MODEL"),
             writer_mode=_s("WRITER_MODE", "simple").lower() or "simple",
+            pdf_layout=(_s("PDF_LAYOUT", "book").lower() if _s("PDF_LAYOUT", "book").lower() in ("book", "spreads") else "book"),
             openai_text_effort=_s("OPENAI_TEXT_EFFORT", "medium").lower(),
             cloudflare_account_id=_s("CLOUDFLARE_ACCOUNT_ID"),
             cloudflare_api_token=_s("CLOUDFLARE_API_TOKEN"),

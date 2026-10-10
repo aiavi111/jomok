@@ -327,3 +327,28 @@ def test_sheet_prompt_forbids_invented_characters_and_counts_the_real_ones():
     data["friends"] = [{"name": "Лис", "kind": "лис", "look": "a small orange fox with a green scarf"}]
     two = prompts.build_sheet_prompt(assemble(profile, data), profile)
     assert "exactly 2 characters," in two
+
+
+async def test_book_layout_gives_two_files_spreads_as_before_and_a_9_16_phone_version(tmp_path):
+    from pypdf import PdfReader
+    from app.readpdf import PAGES_IN_BOOK
+    image = ScriptedImage(supports_reference=False)
+    result = await build_book(Profile.from_payload(SAMPLE), MockTextProvider(), image, tmp_path / "order",
+                              image_sem=asyncio.Semaphore(3), mock=True, pdf_layout="book")
+    spreads = PdfReader(str(result.pdf_path))                          # book.pdf прежний: широкие развороты
+    assert len(spreads.pages) == PAGES + 2 and float(spreads.pages[0].mediabox.width) > float(spreads.pages[0].mediabox.height)
+    phone = PdfReader(str(tmp_path / "order" / "mobile.pdf"))          # второй: вертикальные страницы 9:16
+    assert len(phone.pages) == PAGES_IN_BOOK == PAGES + 3
+    for page in phone.pages:
+        assert abs(float(page.mediabox.width) / float(page.mediabox.height) - 9 / 16) < 0.01
+
+
+def test_people_the_parents_asked_for_are_allowed_but_relatives_without_a_photo_are_not():
+    from app.simple_writer import people_in_scene, requested_people
+    ball = Profile.from_payload({**SAMPLE, "gender": "girl", "request": "Ясмина на королевском балу среди настоящих принцесс, она сама принцесса"})
+    assert {"princess", "princesses"} <= requested_people(ball)
+    assert not people_in_scene("Several princesses in gowns dance in a crystal ballroom with the helper", ball)
+    assert people_in_scene("The mother waves from the balcony", ball)                       # родная мама без фото не рисуется
+    plain = Profile.from_payload({**SAMPLE, "request": "Артём играет на стадионе"})
+    assert people_in_scene("Several girls in gowns dance", plain)
+    assert "doctor" in requested_people(Profile.from_payload({**SAMPLE, "request": "Малыш идёт к зубному врачу"}))

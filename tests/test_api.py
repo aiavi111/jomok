@@ -83,7 +83,7 @@ async def test_full_order_flow_with_files_and_delivery(env):
     assert order["cover_url"] and order["pdf_url"] and order["book"]["caption"] == "Книга для Айдара"
     assert order["delivered"] is True and order["error"] is None and "error_detail" not in order
     # PDF отправлен в чат владельца и копия — администратору
-    assert [b[0] for b in env.notifier.books] == [42]
+    assert [b[0] for b in env.notifier.books] == [42, 42]            # книга и вариант для телефона
     assert env.notifier.books[0][2].endswith(".pdf") and len(env.notifier.admin_books) == 1
     # файлы по заголовку
     pdf = await env.client.get(f"/api/orders/{order_id}/book.pdf", headers=tma())

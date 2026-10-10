@@ -538,7 +538,7 @@ async def test_delivered_book_is_followed_by_a_print_offer_with_prices(closed_en
     await api(closed_env, "post", "/api/admin/settings", json={"whatsapp": "996555123456"})
     await give_access(closed_env, USER, 1)
     done = await closed_env.wait_done((await post_order(closed_env))[1]["order_id"])
-    assert done["delivered"] is True and len(closed_env.notifier.books) == 1
+    assert done["delivered"] is True and len(closed_env.notifier.books) == 2     # PDF по страницам и вариант с разворотами
     assert closed_env.notifier.print_offers == [(
         USER, "Хотите заказать печатную версию? 590 сом: PDF, 1 290 сом: мягкая фотокнига",
         f"https://wa.me/996555123456?text={PRINT_ASK}")]
@@ -552,7 +552,7 @@ async def test_print_offer_uses_the_current_prices_and_is_not_repeated_on_resend
     assert [o[1] for o in closed_env.notifier.print_offers] == \
         ["Хотите заказать печатную версию? 650 сом: PDF, 1 500 сом: мягкая фотокнига"]
     resp = await closed_env.client.post(f"/api/orders/{order_id}/send", headers=tma(ADMIN_ID))
-    assert (await resp.json())["delivered"] is True and len(closed_env.notifier.books) == 2
+    assert (await resp.json())["delivered"] is True and len(closed_env.notifier.books) == 4
     assert len(closed_env.notifier.print_offers) == 1                             # повторная отправка PDF без повторной рекламы
 
 
@@ -578,7 +578,7 @@ async def test_old_style_notifier_without_print_offer_method_still_works(tmp_pat
     e = await build_env(tmp_path, notifier=notifier)
     try:
         e.service.desk.update({"whatsapp": "996555123456"})
-        assert (await e.wait_done(await e.create()))["status"] == "done" and len(notifier.books) == 1
+        assert (await e.wait_done(await e.create()))["status"] == "done" and len(notifier.books) == 2
     finally:
         await e.service.shutdown(); await e.client.close(); e.db.close()
 

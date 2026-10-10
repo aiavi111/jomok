@@ -18,6 +18,7 @@ from .imaging import normalize_image
 from .layout import COVER_QUALITY, COVER_SIZE, PAGE_QUALITY, PAGE_SIZE, calm_side, size_str
 from .overlay import DEFAULT_MODE, MODES
 from .pdfbook import build_pdf
+from .readpdf import build_mobile_pdf
 from .placeholder import draw_placeholder
 from .profile import Profile
 from .prompts import (build_cover_prompt, build_page_prompt, build_sheet_prompt, has_sheet_characters, person_in_scene,
@@ -115,6 +116,7 @@ async def build_book(
     image_sem: asyncio.Semaphore | None = None,
     mock: bool = False,
     overlay_mode: str = DEFAULT_MODE,
+    pdf_layout: str = "spreads",
     on_status: StatusCb = _noop,
     on_story: StoryCb = _noop,
 ) -> BookResult:
@@ -232,6 +234,13 @@ async def build_book(
     report: dict = {}
     await asyncio.to_thread(build_pdf, story, profile, images, pdf_path, mock=mock, cover_has_title=cover_has_title,
                             overlay_mode=overlay_mode, report=report)
+    if pdf_layout == "book":
+        # второй вариант для телефона: вертикальные страницы 9:16 по одной на экран (mobile.pdf); основной book.pdf прежний, с разворотами
+        try:
+            await asyncio.to_thread(build_mobile_pdf, story, profile, images, out_dir / "mobile.pdf", mock=mock,
+                                    cover_has_title=cover_has_title)
+        except Exception:                                   # второй вариант не должен ронять заказ
+            log.exception("Не удалось собрать mobile.pdf")
     (out_dir / LAYOUT_META).write_text(json.dumps({k: report.get(k) for k in ("text_sides", "text_styles", "overlay_mode")},
                                                   ensure_ascii=False), encoding="utf-8")
     return BookResult(story=story, pdf_path=pdf_path, failed_pages=failed, failure_notes=notes,

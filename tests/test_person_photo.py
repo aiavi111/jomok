@@ -153,7 +153,7 @@ def test_with_a_person_photo_other_people_are_still_rejected():
 
 def test_prompts_tell_the_writer_the_rule_in_both_cases():
     plain = system_prompt(profile_with())
-    assert "НЕТ ЛЮДЕЙ, кроме героя" in plain and "ни маму, ни папу" in plain and "лицом не показывай" not in plain
+    assert "нет РОДНЫХ людей" in plain and "маму, папу, бабушку" in plain and "ИСКЛЮЧЕНИЕ" in plain and "принцессы" in plain and "лицом не показывай" not in plain
     assert "Фото близкого человека: нет (людей в книге нет, кроме героя)." in user_prompt(profile_with(), None)
     with_photo = system_prompt(profile_with(True, "father"))
     assert "ОДИН человек" in with_photo and "the person from the reference photo" in with_photo and '"kind": "папа"' in with_photo

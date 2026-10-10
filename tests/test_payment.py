@@ -183,7 +183,7 @@ async def test_confirmation_starts_generation_and_tells_the_user(env):
     row = env.service.db.get_order(order_id)
     assert row["paid"] == 1 and row["paid_at"] is not None
     assert any(uid == USER and "Оплата получена" in text for uid, text in env.notifier.user_texts)
-    assert len(env.notifier.books) == 1
+    assert len(env.notifier.books) == 2                               # книга и вариант для телефона
     overview = await (await env.client.get("/api/admin/payments", headers=tma(ADMIN_ID))).json()
     assert overview["pending"] == [] and overview["paid_today"] == 1 and overview["recent"][0]["id"] == order_id
 

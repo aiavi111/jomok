@@ -517,7 +517,7 @@ class OrderService:
                     result = await asyncio.wait_for(build_book(
                         profile, self.text, self.image, odir, photo=photo, person_photo=parent, image_sem=self.image_sem,
                         mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
-                        on_status=on_status, on_story=on_story,
+                        pdf_layout=self.settings.pdf_layout, on_status=on_status, on_story=on_story,
                     ), timeout=ORDER_TIMEOUT)
                 except asyncio.TimeoutError:
                     raise ProviderError("Сервис слишком долго не отвечал. Попробуйте ещё раз позже.") from None
@@ -566,12 +566,19 @@ class OrderService:
 
     async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True) -> bool:
         filename = safe_filename(story.title)
+        mobile = Path(pdf_path).with_name("mobile.pdf")
         caption = f"🎉 Готово! «{story.title}» — персональная книга. Сохраните файл или откройте его на любом устройстве 💛"
         try:
             ok = await self.notifier.send_book(user_id, pdf_path, filename, caption)
         except Exception:  # noqa: BLE001
             log.exception("Заказ %s: ошибка отправки PDF в чат", order_id)
             ok = False
+        if ok and mobile.exists():                     # второй вариант: те же страницы по одной на экран телефона (9:16)
+            try:
+                await self.notifier.send_book(user_id, mobile, filename.removesuffix(".pdf") + " (для телефона).pdf",
+                                              "📱 Версия для телефона: страницы по одной, листайте вниз. Это та же книга.")
+            except Exception:  # noqa: BLE001
+                log.exception("Заказ %s: не удалось отправить вариант с разворотами", order_id)
         self.db.update_order(order_id, delivered=1 if ok else 0)
         if ok and offer:
             await self._offer_print(order_id, user_id)
