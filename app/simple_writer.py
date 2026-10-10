@@ -20,7 +20,7 @@ from .profile import Profile
 from .story import PAGES, Story, parse_story_json, validate_story
 from .textutil import clean_text, cut_words, cyrillic_ratio
 from .translit import latin_variants
-from .writer import (check_story, forms_table, hard_violations, page_limits, pick_palette, violations_text)
+from .writer import (_ISLAMIC_EN_RE, brand_hits, check_story, forms_table, hard_violations, page_limits, pick_palette, violations_text)
 
 MAX_FRIENDS = 3
 
@@ -192,13 +192,51 @@ class _Soft(StoryValidationError):
     """Внутренний признак мягкого замечания: assemble превращает его в SoftProblem вместе с готовой книгой."""
 
 
+_AMBIGUOUS_BRANDS = {"frozen"}      # «frozen lake» — просто замёрзшее озеро, пока рядом нет Эльзы или Анны
+
+
+def english_brand_hits(text: str) -> list[str]:
+    """Чужие герои и знаменитости в английском тексте для художника; обычные слова («frozen lake», «marvelous») не считаются."""
+    low = text.lower()
+    hits = []
+    for h in brand_hits(text):
+        word = re.search(re.escape(h) + r"[a-z]*", low)
+        whole = word.group(0) if word else h
+        if h in _AMBIGUOUS_BRANDS and not re.search(r"\b(elsa|anna|olaf|disney)\b", low):
+            continue
+        if whole != h and whole not in ("spiderman", "spider-man", "batman", "superman", "ironman"):
+            continue                                             # стем — начало длинного обычного слова
+        hits.append(h)
+    return hits
+
+
+def _check_english_fields(profile: Profile, scenes: list[str], outfit: str, looks: list[str]) -> None:
+    """Жёсткие проверки того, что уходит художнику: чужие герои, исламский режим, люди среди помощников."""
+    for text in [*scenes, outfit, *looks]:
+        hits = english_brand_hits(text)
+        if hits:
+            raise StoryValidationError(f"В описании для художника есть чужой персонаж или знаменитость («{hits[0]}»): придумай своего героя "
+                                       "и опиши его словами, без имён и фирменных примет.")
+        if profile.islamic:
+            low = text.lower()
+            for pat in _ISLAMIC_EN_RE:
+                m = pat.search(low)
+                if m:
+                    raise StoryValidationError(f"В описании для художника «{m.group(0)}»: в режиме «Исламские ценности» это нельзя. "
+                                               "Замени на обычное животное или вещь.")
+    if not profile.has_person_photo:
+        for look in looks:
+            if people_in_scene(look, profile) or is_human_adult(look):
+                raise StoryValidationError(f"Помощник или друг описан как человек («{look[:50]}»). {HUMANS_RULE}")
+
+
 def _check_requirements(profile: Profile, data: dict, pages: list[dict], outfit: str) -> None:
     """Просьбы родителей не теряются: каждая должна быть в requirements, её английское слово стоит в нескольких scene
     (или в одежде героя), помощник виден почти на каждой странице, реальных знаменитостей в requirements нет."""
-    from .writer import brand_hits
     scenes = [p["scene"].lower() for p in pages]
     reqs = data.get("requirements")
-    if profile.request and not (isinstance(reqs, list) and reqs):
+    trivial = len(profile.request.split()) < 3          # «нет», «-», «добрая»: придумывать деталь не нужно
+    if profile.request and not trivial and not (isinstance(reqs, list) and reqs):
         raise StoryValidationError("Родители написали пожелание (request), а requirements пусто: выпиши каждую деталь "
                                    "(место, одежда, номер, действие) в requirements с английским словом en.")
     for i, item in enumerate(reqs if isinstance(reqs, list) else [], start=1):
@@ -207,7 +245,7 @@ def _check_requirements(profile: Profile, data: dict, pages: list[dict], outfit:
         what = clean_text(item.get("what") if isinstance(item, dict) else "")
         if not en or cyrillic_ratio(en) > 0.2:
             raise StoryValidationError(f"В requirements[{i}] нет английского слова en (например stadium): художнику нужно слово для кадров.")
-        if brand_hits(f"{en} {what}"):
+        if english_brand_hits(f"{en}") or brand_hits(what):
             raise StoryValidationError(f"В requirements[{i}] названа реальная знаменитость или чужой персонаж: замени на придуманного героя со своим именем, "
                                        "его внешность опиши словами (красная форма, золотой мяч).")
         seen = sum(any(v in s for v in variants) for s in scenes)      # «child superhero, city rescue»: достаточно любой части
@@ -233,7 +271,8 @@ _CREATURE = re.compile(
     r"\b(?:dinosaurs?|dragons?|mare|horses?|bears?|cats?|dogs?|foxes|fox|hares?|rabbits?|owls?|birds?|animals?|creatures?|robots?|foals?|deer|"
     r"wolf|wolves|sheep|goats?|cows?|elephants?|lions?|tigers?|monkeys?|turtles?|bees?|ants?|mice|mouse|penguins?|frogs?|ducks?|pigs?|"
     r"unicorns?|fairy|fairies|elf|elves|gnomes?|monsters?|toys?|dolls?|squirrels?|hedgehogs?|puppy|puppies|kittens?|bunny|bunnies|"
-    r"giraffes?|zebras?|whales?|dolphins?|fish|butterfl(?:y|ies)|snails?)\b", re.I)
+    r"giraffes?|zebras?|whales?|dolphins?|fish|butterfl(?:y|ies)|snails?|fireflies|firefly|insects?|bugs?)\b", re.I)
+_PROPS = {"hat", "cap", "ship", "boat", "flag", "costume", "coat", "suit", "outfit", "uniform", "treasure", "cobra", "crown", "cottage", "kitchen", "tent"}
 _HERO_WORDS = {"boy": {"boy"}, "girl": {"girl"}}
 _RU_HUMAN = re.compile(r"(?:мама|мамочка|папа|папочка|бабушка|дедушка|тётя|тетя|дядя|врач|доктор|учитель|учительница|родители?|сестра|брат|"
                        r"человек|люди|мальчик|девочка|дети|ребёнок)")
@@ -252,13 +291,17 @@ def people_in_scene(scene: str, profile: Profile) -> list[str]:
     «baby goat kid») человеком не считаются. С фото разрешён один человек нужной роли («the grandmother», «the person»)."""
     found: list[str] = []
     allowed = set(profile.person_words) | {"person"} if profile.has_person_photo else set()
-    hero_gender = _HERO_WORDS.get(profile.gender, {"boy"})
+    hero_gender = set(_HERO_WORDS.get(profile.gender, {"boy"})) | ({"toddler"} if profile.age <= 5 else set())      # малыша 3–5 лет писатель зовёт «the toddler»
     for m in _PEOPLE.finditer(scene):
         word = m.group(0).lower()
         if word in allowed:
             continue
+        if scene[m.end():m.end() + 2] in ("'s", "’s"):                  # «farmer's field», «fisherman's boat»: это про место или вещь
+            continue
         before = scene[:m.start()].lower().split()[-2:]
         after = scene[m.end():].lower().split()[:2]
+        if after[:1] and after[0].strip(".,;:") in _PROPS:               # «pirate hat», «chef hat», «king cobra»: вещь или зверь, не человек
+            continue
         if _CREATURE.search(" ".join(before + after)):
             continue
         extra = before[-1:] and before[-1] in ("another", "other", "second", "new", "two", "three", "some", "many")
@@ -338,6 +381,9 @@ def assemble(profile: Profile, data: dict, rng: random.Random | None = None) -> 
         kind = clean_text(family.get("kind") or "взрослый")[:40]
         cast.append({"name": kind, "role": "family", "look": _english(family.get("look"), "family.look", minimum=4)})
 
+    _check_english_fields(profile, [p["scene"] for p in pages], outfit, [c["look"] for c in cast[1:]])
+    if profile.has_person_photo and not any(person_shown(p["scene"], profile) for p in pages):
+        raise StoryValidationError(f"Родители добавили фото ({profile.person_ru}), а в scene этого человека нет. Покажи его в трёх-четырёх кадрах словом «the {_person_en(profile)}».")
     soft: str | None = None
     try:
         _check_requirements(profile, data, pages, outfit)

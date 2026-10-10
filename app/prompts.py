@@ -103,7 +103,8 @@ def scrub_name(text: str, name: str, gender: str = "boy") -> str:
     cyr = re.escape(name.lower())
     # «named Aidar», «called Aidar» — слово с именем исчезает вместе с пояснением
     text = re.sub(r"(?i),?\s*\b(?:named|called)\s+(?:" + "|".join(names) + r")(?:['’]s)?\b", "", text)
-    text = re.sub(r"(?i)(?<![\w])" + cyr + r"\w*", word, text)                         # кириллица, любой падеж
+    if re.search(r"[а-яёәөүңқғ]", name.lower()):                                       # падежи есть только у кириллического имени: «Dan» не трогает «dandelion»
+        text = re.sub(r"(?i)(?<![\w])" + cyr + r"\w*", word, text)
     pattern = re.compile(r"(?i)(?<![\w])(?:" + "|".join(names) + r")(?=['’]s\b|\b)")
     def repl(m: re.Match) -> str:
         start = m.start()
@@ -292,14 +293,18 @@ def build_sheet_prompt(story: Story, profile: Profile) -> str:
     return _finish(looks, "", style_block(profile), lead=SHEET_LEAD, keep=(_modest(profile),))
 
 
-def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: bool, person_ref: bool = False) -> str:
+def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: bool, person_ref: bool = False,
+                      photo_ref: bool | None = None) -> str:
     """Страница index (1..PAGES): широкая иллюстрация на весь разворот (2:1). Композиция: герои на одной половине,
     другая спокойная и пустая под текст (справа у нечётных страниц, слева у чётных). Герой приходит по референсу
     (без них hero_visual вставляется дословно), помощник и препятствие страницы описаны текстом из cast."""
     raw_scene = story.pages[index - 1].scene
     scene = scrub_name(raw_scene, profile.name, profile.gender)
-    if has_refs:
+    with_photo = has_refs if photo_ref is None else photo_ref        # photo_ref=False: образцов нет или это лист героев без ребёнка
+    if has_refs and with_photo:
         hero = same_character(profile)
+    elif has_refs:             # образец без ребёнка (лист героев): героя ребёнка художнику описываем словами, существ берём с образца
+        hero = scrub_name(story.hero_visual, profile.name, profile.gender) + " The other characters look exactly like in the reference image."
     else:
         hero = scrub_name(story.hero_visual, profile.name, profile.gender)
     parent = PERSON_PHOTO_CLAUSE if person_ref and person_in_scene(story, raw_scene) else ""

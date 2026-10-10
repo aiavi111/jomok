@@ -41,8 +41,11 @@
     try { tg.ready(); } catch (e) { /* ok */ }
     try { tg.expand(); } catch (e) { /* ok */ }
     try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) { /* ok */ }
-    try { tg.onEvent('themeChanged', applyTheme); } catch (e) { /* ok */ }
-    try { tg.BackButton.onClick(onBackButton); } catch (e) { /* нет BackButton */ }
+    if (!S.tgBound) {
+      try { tg.onEvent('themeChanged', applyTheme); } catch (e) { /* ok */ }            // boot() может вызываться повторно (кнопка «Попробовать ещё раз»): обработчик ставим один раз
+      S.tgBound = true;
+      try { tg.BackButton.onClick(onBackButton); } catch (e) { /* нет BackButton */ }
+    }
   }
 
   function setBackButton(visible) {
@@ -240,7 +243,9 @@
     else if (o.form) { body = o.form; }
     let res;
     try {
-      res = await fetch(path, { method: o.method || 'GET', headers, body });
+      const limit = o.form ? 90000 : 30000;           // на плохой сети запрос не висит вечно
+      const signal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(limit) : undefined;
+      res = await fetch(path, { method: o.method || 'GET', headers, body, signal });
     } catch (e) {
       throw new ApiError('Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.', 0, 'network');
     }
@@ -496,8 +501,8 @@
   }
 
   /* ===================================================================== мастер */
-  const NAME_RE = /^[\p{L}][\p{L}\s'’.\-]*$/u;
-  const nameClean = () => S.a.name.trim().replace(/\s+/g, ' ');
+  const NAME_RE = /^[\p{L}][\p{L}\p{M}\s'’.\-]*$/u;
+  const nameClean = () => S.a.name.normalize('NFC').trim().replace(/\s+/g, ' ');
   const nameOk = () => { const n = nameClean(); return n.length >= 1 && n.length <= 30 && NAME_RE.test(n); };
   const nameShown = () => esc(nameClean() || 'малыш');
 
@@ -846,7 +851,7 @@
     if (!S.photo) {
       box.innerHTML = '<div class="photo-btns"><label class="photo-pick" for="file-cam" tabindex="0"><span class="big" aria-hidden="true">' + icon('camera') + '</span>Сфотографировать</label>' +
         '<label class="photo-pick alt" for="file" tabindex="0"><span class="big" aria-hidden="true">' + icon('image') + '</span>Выбрать из галереи</label></div>' +
-        '<input type="file" class="vh" id="file-cam" accept="image/*" capture="user"><input type="file" class="vh" id="file" accept="image/*">' + note;
+        '<input type="file" class="vh" id="file-cam" accept="image/*" capture="environment"><input type="file" class="vh" id="file" accept="image/*">' + note;
     } else {
       box.innerHTML = '<div class="photo-prev"><img src="' + S.photoUrl + '" alt="Выбранное фото"><div class="t">' + icon('done') + 'Фото добавлено</div><button type="button" class="btn ghost small" data-act="photo-remove">' + icon('trash') + 'Убрать</button></div>' +
         '<label class="check-row"><input type="checkbox" id="consent" data-field="photo_consent"' + (S.a.photo_consent ? ' checked' : '') + '><span>Я родитель и согласен(на) на обработку фото для создания книги</span></label>' + note;
@@ -878,7 +883,7 @@
     if (!S.person) {
       box.innerHTML = head + who + '<div class="photo-btns"><label class="photo-pick" for="pfile-cam" tabindex="0"><span class="big" aria-hidden="true">' + icon('camera') + '</span>Сфотографировать</label>' +
         '<label class="photo-pick alt" for="pfile" tabindex="0"><span class="big" aria-hidden="true">' + icon('image') + '</span>Выбрать из галереи</label></div>' +
-        '<input type="file" class="vh" id="pfile-cam" accept="image/*" capture="user"><input type="file" class="vh" id="pfile" accept="image/*">' + note;
+        '<input type="file" class="vh" id="pfile-cam" accept="image/*" capture="environment"><input type="file" class="vh" id="pfile" accept="image/*">' + note;
     } else {
       box.innerHTML = head + who + '<div class="photo-prev"><img src="' + S.personUrl + '" alt="Фото: ' + esc(personWord()) + '"><div class="t">' + icon('done') + 'Фото добавлено</div><button type="button" class="btn ghost small" data-act="person-remove">' + icon('trash') + 'Убрать</button></div>' +
         '<label class="check-row"><input type="checkbox" id="consent-person" data-field="person_consent"' + (S.a.person_consent ? ' checked' : '') + '><span>Я согласен(на) на обработку фото этого человека для создания книги</span></label>' + note;
@@ -1201,18 +1206,23 @@
     }
     if (token !== S.pollId) return;
     if (order) {
-      S.order = order;
-      if (order.status === 'awaiting_payment' || order.status === 'payment_review') { showPay(order.id, order); return; }
-      if (order.status === 'cancelled') { await refreshConfig(); showWelcome(); return; }
-      if (order.status === 'done') { showResult(order); return; }
-      if (order.status === 'error') { showOrderError(order); return; }
-      updateWait(order);
+      try {
+        S.order = order;
+        if (order.status === 'awaiting_payment' || order.status === 'payment_review') { showPay(order.id, order); return; }
+        if (order.status === 'cancelled') { await refreshConfig(); showWelcome(); return; }
+        if (order.status === 'done') { showResult(order); return; }
+        if (order.status === 'error') { showOrderError(order); return; }
+        updateWait(order);
+      } catch (e) {                // неожиданный ответ сервера не должен остановить опрос: пробуем ещё раз
+        S.pollFails += 1;
+        if (S.pollFails > 8) { showFatal(e, () => boot()); return; }
+      }
     }
     setTimeout(() => poll(token), S.pollFails > 4 ? 6000 : 1800);
   }
 
   function updateWait(o) {
-    const p = o.progress;
+    const p = o.progress || { percent: 0, stage: 0 };
     const bar = $('.bar'); if (bar) { bar.setAttribute('aria-valuenow', p.percent); $('i', bar).style.setProperty('--p', p.percent / 100); }
     if (p.stage !== S.stage && p.stage >= 0) { S.stage = p.stage; S.tipIndex = 0; const tip = document.getElementById('tip'); if (tip) tip.textContent = (TIPS[p.stage] || TIPS[0])[0]; }
     if (p.stage === -1 && S.stage !== -1) { S.stage = -1; const tip = document.getElementById('tip'); if (tip) tip.textContent = TIPS['-1'][0]; }
@@ -1380,6 +1390,7 @@
     setBackButton(false);
     setHeader();
     haptic.ok();
+    o.pages = o.pages || []; o.book = o.book || {};
     const count = 2 + o.pages.length + 1;
     app.innerHTML = '<section class="screen result"><div class="confetti" aria-hidden="true"></div>' +
       '<header class="r-head"><div class="done" aria-hidden="true">' + icon('done') + '</div><h1>Ура! Книга готова</h1><p class="bt">' + esc(o.book.title) + '</p>' + deliveryHtml(o) + '</header>' +
@@ -1476,8 +1487,17 @@
     }
   }
 
+  // сервер другой версии мог не прислать часть полей: подставляем безопасные значения, чтобы экраны не падали
+  function withDefaults(c) {
+    c = c || {};
+    c.limits = Object.assign({ remaining_today: 1, books_per_day: 3 }, c.limits || {});
+    c.options = c.options || {};
+    ['values', 'traits', 'likes', 'languages', 'places', 'topics'].forEach((k) => { if (!Array.isArray(c.options[k])) c.options[k] = []; });
+    return c;
+  }
+
   async function refreshConfig() {
-    try { S.cfg = await api('/api/config'); S.steps = buildSteps(); } catch (e) { /* оставим прежние значения */ }
+    try { S.cfg = withDefaults(await api('/api/config')); S.steps = buildSteps(); } catch (e) { /* оставим прежние значения */ }
   }
 
   async function again() {
@@ -1633,7 +1653,11 @@
     if (!S.admin) app.innerHTML = '<div class="boot"><i aria-label="Загрузка"></i></div>';
     await loadAdmin();
     if (S.screen !== 'admin') return;
-    S.adminTimer = setInterval(() => { if (S.screen === 'admin' && S.adminTab === 'checks' && !document.hidden) loadAdmin(true); }, 15000);
+    S.adminTimer = setInterval(() => {
+      const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+      const reasonOpen = $$('.reject input').some((i) => i.value);             // пишут причину отказа: не стираем ввод
+      if (S.screen === 'admin' && S.adminTab === 'checks' && !document.hidden && !typing && !reasonOpen) loadAdmin(true);
+    }, 15000);
   }
 
   async function loadAdmin(quiet) {
@@ -2043,6 +2067,7 @@
       showFatal(e, boot);
       return;
     }
+    S.cfg = withDefaults(S.cfg);
     S.steps = buildSteps();
     if (S.cfg.is_admin && query.get('admin') === '1') { showAdmin('checks'); return; }
     if (S.cfg.active_order_id) { showWait(S.cfg.active_order_id); return; }

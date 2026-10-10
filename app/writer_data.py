@@ -555,9 +555,9 @@ VIOLENCE_PATTERNS_KY = (
 # исламский режим: чего нельзя в книге (гид и ISLAMIC_BLOCK)
 ISLAMIC_FORBIDDEN_RU = (
     r"джинн\w*", r"дракон\w*", r"\bфе(?:я|и|ю|е|ей)\b", r"ведьм\w*", r"колдов\w*|колдун\w*", r"магия|магии|магию|магией|магическ\w*|"
-    r"волшеб\w*|чародей\w*|заклинани\w*", r"гадани\w*", r"свинин\w*|алкогол\w*", r"\bидол\w*", r"пророк\w*|\bангел\w*|\bаят\w*|\bхадис\w*",
+    r"волшеб\w*|чародей\w*|заклинани\w*", r"гадани\w*", r"свинин\w*|алкогол\w*", r"\bсвинь\w*|\bсвинк\w*|поросён\w*|поросен\w*|\bхряк\w*|\bхрюш\w*", r"\bидол\w*", r"пророк\w*|\bангел\w*|\bаят\w*|\bхадис\w*",
 )
-ISLAMIC_FORBIDDEN_KY = (r"\bжин\w*", r"ажыдаар\w*", r"\bпери\b", r"сыйкыр\w*")
+ISLAMIC_FORBIDDEN_KY = (r"\bчочко\w*", r"\bжин\w*", r"ажыдаар\w*", r"\bпери\b", r"сыйкыр\w*")
 ISLAMIC_FORBIDDEN_EN = (r"\bdragon", r"\bfair(?:y|ies)\b", r"\bwitch", r"\bmagic", r"\bgenie\b|\bdjinn", r"\bwizard", r"\bangel",
                         r"\bpork\b|\bpig\b|\bwine\b|\bbeer\b|\balcohol")
 

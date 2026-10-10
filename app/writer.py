@@ -1174,11 +1174,12 @@ def _check_islamic(story: Story, profile: Profile) -> list[Violation]:
     if not profile.islamic:
         return []
     out: list[Violation] = []
+    own = norm(first_name(profile.name))                      # Аят, Ангелина: имя ребёнка не «запретное слово»
     for where, page, text in _units(story):
         low = norm(text)
         for pat in _ISLAMIC_RE:
             m = pat.search(low)
-            if m:
+            if m and not (own and m.group(0).startswith(own)):
                 out.append(Violation("islamic", _msg(where, f"«{m.group(0)}»: в режиме «Исламские ценности» это нельзя"), page))
     return out
 

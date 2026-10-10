@@ -243,3 +243,61 @@ def test_human_adults_without_a_person_photo_are_a_hard_error_but_animal_parents
         page["scene"] = "A boy in a red jersey number 7 on a huge stadium with the helper and a dinosaur mother."
     story = assemble(profile, data)
     assert story.characters("family") and not any("face is never visible" in p.scene for p in story.pages)
+
+
+def test_without_the_childs_photo_pages_describe_the_hero_in_words():
+    from app import prompts
+    profile, data = _football({"request": "Артём играет на стадионе"})
+    story = assemble(profile, data)
+    page = prompts.build_page_prompt(story, profile, 3, has_refs=True, photo_ref=False)
+    assert story.cast[0].look[:30] in page and "same character and the same outfit" not in page
+    with_photo = prompts.build_page_prompt(story, profile, 3, has_refs=True, photo_ref=True)
+    assert "same character and the same outfit" in with_photo
+
+
+def test_english_fields_cannot_smuggle_in_brands_pigs_or_people():
+    profile, data = _football()
+    data["pages"][0]["scene"] = "A boy in a Spiderman suit on a huge stadium with the helper beside him."
+    with _pytest.raises(StoryValidationError, match="чужой персонаж"):
+        assemble(profile, data)
+    profile, data = _football()
+    data["helper"]["look"] = "a tall man in a blue coat with a grey beard standing calmly"
+    with _pytest.raises(StoryValidationError, match="как человек"):
+        assemble(profile, data)
+    islamic = Profile.from_payload({**SAMPLE, "islamic": True, "request": "Артём играет на стадионе в футболке с номером 7"})
+    _, data = _football()
+    data["helper"]["look"] = "a cheerful pink pig with a green scarf"
+    with _pytest.raises(StoryValidationError, match="Исламские"):
+        assemble(islamic, data)
+
+
+def test_ordinary_scene_words_are_not_mistaken_for_people_or_brands():
+    from app.simple_writer import english_brand_hits, people_in_scene
+    profile, _ = _football()
+    for scene in ("A pirate hat on a rock", "In the farmer's field at dawn", "A crowd of fireflies over the pond", "A king cobra statue"):
+        assert not people_in_scene(scene, profile), scene
+    assert not english_brand_hits("a frozen lake at sunrise") and not english_brand_hits("a marvelous marionette show")
+    assert english_brand_hits("looks like Pikachu")
+
+
+def test_child_named_like_a_forbidden_word_is_not_rejected_by_the_islamic_rule():
+    from app.writer import check_story
+    profile = Profile.from_payload({**SAMPLE, "name": "Аят", "islamic": True, "request": ""})
+    data = _answer()
+    for page in data["pages"]:
+        page["text"] = "Аят шёл по тропинке с другом. Они искали мяч и смеялись. — Вот он! — крикнул Аят."
+    story = assemble(profile, data)
+    assert not [v for v in check_story(story, profile, None) if v.code == "islamic"]
+
+
+def test_scrub_name_leaves_ordinary_english_words_alone_for_latin_names():
+    from app.prompts import scrub_name
+    assert scrub_name("Dan runs past the dandelions near the market", "Dan", "boy") == "the boy runs past the dandelions near the market".capitalize()
+
+
+def test_a_small_child_hero_may_be_called_a_toddler():
+    from app.simple_writer import people_in_scene
+    small = Profile.from_payload({**SAMPLE, "age": 3})
+    older = Profile.from_payload({**SAMPLE, "age": 8})
+    assert not people_in_scene("A toddler laughs on the grass", small)
+    assert people_in_scene("A toddler laughs on the grass", older)

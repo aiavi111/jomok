@@ -213,7 +213,7 @@ async def build_book(
     async def page(i: int) -> None:
         with_parent = use_parent and person_in_scene(story, story.pages[i - 1].scene)
         refs = ((page_refs or []) + [person_photo]) if with_parent else page_refs      # кадры без этого человека его фото не получают
-        prompt = build_page_prompt(story, profile, i, has_refs=bool(page_refs), person_ref=with_parent)
+        prompt = build_page_prompt(story, profile, i, has_refs=bool(page_refs), person_ref=with_parent, photo_ref=use_photo)
         await make(f"p{i}", prompt, refs, f"Страница {i}", story.pages[i - 1].scene)
 
     tasks = [asyncio.create_task(page(i)) for i in range(1, PAGES + 1)]
