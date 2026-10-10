@@ -301,3 +301,18 @@ def test_a_small_child_hero_may_be_called_a_toddler():
     older = Profile.from_payload({**SAMPLE, "age": 8})
     assert not people_in_scene("A toddler laughs on the grass", small)
     assert people_in_scene("A toddler laughs on the grass", older)
+
+
+def test_hero_gender_and_outfit_are_pinned_in_every_page_prompt():
+    from app import prompts
+    for gender, word in (("boy", "the boy"), ("girl", "the girl")):
+        profile = Profile.from_payload({**SAMPLE, "gender": gender, "request": "Герой играет на стадионе"}, has_photo=True)
+        _, data = _football()
+        data["hero_outfit"] = "a blue hoodie and brown trousers"
+        for page in data["pages"]:
+            page["scene"] = "The hero runs on a huge stadium with the helper beside the hero and the number 7 stadium lights."
+        story = assemble(profile, data)
+        for i in range(1, 9):
+            prompt = prompts.build_page_prompt(story, profile, i, has_refs=True, photo_ref=True)
+            assert "beside the hero" not in prompt and f"{word.capitalize()} runs on a huge stadium" in prompt
+            assert word in prompt and f"The hero is a {gender}" in prompt and "blue hoodie" in prompt

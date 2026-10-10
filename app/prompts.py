@@ -293,16 +293,40 @@ def build_sheet_prompt(story: Story, profile: Profile) -> str:
     return _finish(looks, "", style_block(profile), lead=SHEET_LEAD, keep=(_modest(profile),))
 
 
+def hero_gender_word(profile: Profile) -> str:
+    return "girl" if profile.gender == "girl" else "boy"
+
+
+def hero_outfit(story: Story) -> str:
+    """Одежда героя из его описания («…, wearing a blue hoodie and brown trousers.»): одна и та же на всех страницах и на обложке."""
+    look = story.cast[0].look if story.cast else story.hero_visual
+    m = re.search(r"\bwearing\s+(.+?)\.?\s*$", look, re.I | re.S)
+    return cut_words(m.group(1).strip(), 140) if m else ""
+
+
+def pin_hero(text: str, story: Story, profile: Profile) -> str:
+    """В кадрах героя зовут «the hero» (без пола): называем его мальчиком или девочкой, иначе картинка может нарисовать другого ребёнка."""
+    word = f"the {hero_gender_word(profile)}"
+    text = re.sub(r"\bthe hero\b", word, text)
+    return re.sub(r"\bThe hero\b", word.capitalize(), text)
+
+
+def hero_pin_clause(story: Story, profile: Profile) -> str:
+    outfit = hero_outfit(story)
+    base = f"The hero is a {hero_gender_word(profile)}, the same child on every page."
+    return base + (f" Always wearing {outfit}." if outfit else "")
+
+
 def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: bool, person_ref: bool = False,
                       photo_ref: bool | None = None) -> str:
     """Страница index (1..PAGES): широкая иллюстрация на весь разворот (2:1). Композиция: герои на одной половине,
     другая спокойная и пустая под текст (справа у нечётных страниц, слева у чётных). Герой приходит по референсу
     (без них hero_visual вставляется дословно), помощник и препятствие страницы описаны текстом из cast."""
     raw_scene = story.pages[index - 1].scene
-    scene = scrub_name(raw_scene, profile.name, profile.gender)
+    scene = pin_hero(scrub_name(raw_scene, profile.name, profile.gender), story, profile)
     with_photo = has_refs if photo_ref is None else photo_ref        # photo_ref=False: образцов нет или это лист героев без ребёнка
     if has_refs and with_photo:
-        hero = same_character(profile)
+        hero = same_character(profile) + " " + hero_pin_clause(story, profile)
     elif has_refs:             # образец без ребёнка (лист героев): героя ребёнка художнику описываем словами, существ берём с образца
         hero = scrub_name(story.hero_visual, profile.name, profile.gender) + " The other characters look exactly like in the reference image."
     else:

@@ -110,7 +110,7 @@ def test_long_cover_keeps_the_title_clause_the_legal_rule_and_the_style_whole():
 def test_hero_description_is_what_gets_cut_when_the_prompt_is_too_long_not_the_fixed_clauses():
     story, profile = long_story(), Profile.from_payload(SAMPLE)
     prompt = prompts.build_page_prompt(story, profile, 1, has_refs=False)
-    assert story.pages[0].scene in prompt and story.hero_visual not in prompt and story.hero_visual[:40] in prompt
+    assert prompts.pin_hero(story.pages[0].scene, story, profile) in prompt and story.hero_visual not in prompt and story.hero_visual[:40] in prompt
     assert len(prompt) > prompts.MAX_PROMPT - 400                              # место использовано, ничего лишнего не выброшено
 
 

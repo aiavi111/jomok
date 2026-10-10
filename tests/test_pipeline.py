@@ -84,7 +84,7 @@ async def test_prompt_order_is_layout_then_scene_then_hero_then_style_without_re
     assert len(pages) == PAGES
     for number, call in enumerate(pages, start=1):
         prompt = call["prompt"]
-        scene = result.story.pages[number - 1].scene
+        scene = prompts.pin_hero(result.story.pages[number - 1].scene, result.story, profile)    # «the hero» в кадре называется мальчиком или девочкой
         assert call["refs"] is None                                     # фото и обложка не уходят провайдеру без референсов
         assert prompt.lower().startswith("wide panoramic double-page spread, 2:1")      # сначала разметка кадра
         assert prompt.index(prompts.page_layout_clause(number, has_refs=False)) == 0
