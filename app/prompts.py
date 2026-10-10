@@ -47,8 +47,10 @@ def style_block(profile: Profile, *, cover: bool = False) -> str:
 # Название на обложке рисует сама модель картинок. Просим сверить написание 20 раз, а дальше текст на картинке
 # всё равно проверяется отдельно (bookgen: модель читает надпись и сравнивает с названием).
 COVER_TITLE_CLAUSE = (
-    "Front cover of a children's picture book. Write the book title exactly once, as large, bold, playful 3D "
-    "lettering with a warm golden glow, in the upper part of the cover, easy to read: «{title}». Before drawing, "
+    "Front cover of a children's picture book. Write the book title exactly once, in large, bold, rounded lettering "
+    "of one clean style: one or two straight horizontal centred lines at the top (no arcs, waves or tilt), solid "
+    "cream-yellow letters with a thick dark indigo outline, flat (no 3D extrusion, gradients or sparkles on the "
+    "letters), even size and spacing: «{title}». Before drawing, "
     "check the spelling of the title letter by letter twenty times over: every letter exactly as given and in this "
     "order, with no extra, missing, doubled, swapped, mirrored or invented letters (Cyrillic letters, including "
     "ү ө ң when present). No other text anywhere on the cover: no subtitle, no name, no signature, no logo."
