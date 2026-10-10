@@ -213,7 +213,7 @@ def test_profile_texts_fit_telegram_limits_and_are_lively():
         assert any(ord(ch) > 0x2600 for ch in text), "в тексте нет эмодзи"
     for command in PUBLIC_COMMANDS + ADMIN_COMMANDS:
         assert 3 <= len(command.description) <= 256 and command.command.islower()
-    assert [c.command for c in PUBLIC_COMMANDS] == ["start", "help"] and [c.command for c in ADMIN_COMMANDS] == ["admin", "id"]
+    assert [c.command for c in PUBLIC_COMMANDS] == ["start", "help"] and [c.command for c in ADMIN_COMMANDS] == ["admin", "mobile", "id"]
     assert "<b>" in WELCOME and WELCOME.count("<b>") == WELCOME.count("</b>")
 
 
@@ -250,7 +250,7 @@ async def test_setup_profile_sets_description_about_and_commands_but_not_name_by
     assert [c.short_description for c in session.calls if isinstance(c, SetMyShortDescription)] == [SHORT_DESCRIPTION]
     scopes = {type(c.scope).__name__: [x.command for x in c.commands] for c in session.calls if isinstance(c, SetMyCommands)}
     assert scopes["BotCommandScopeDefault"] == ["start", "help"]                       # всем — без /id
-    assert scopes["BotCommandScopeChat"] == ["start", "help", "admin", "id"]           # /admin и /id — только владельцу
+    assert scopes["BotCommandScopeChat"] == ["start", "help", "admin", "mobile", "id"]    # /admin, /mobile и /id — только владельцу
 
 
 async def test_setup_profile_with_name_and_without_admin():
