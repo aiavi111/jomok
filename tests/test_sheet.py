@@ -165,3 +165,34 @@ def test_default_place_never_reaches_the_writer():
     profile = Profile.from_payload({**SAMPLE, "request": "Артём играет на стадионе"})
     prompt = user_prompt(profile, None)
     assert "место действия" not in prompt and "стадионе" in prompt and "Место действия выбери сам" in prompt
+
+
+def test_soft_problems_carry_a_finished_book_so_the_order_is_not_lost():
+    from app.simple_writer import SoftProblem
+    profile, data = _football()
+    for page in data["pages"][2:]:
+        page["scene"] = "A boy walks in a green forest with the helper beside him."
+    with _pytest.raises(SoftProblem) as e:
+        assemble(profile, data)
+    assert len(e.value.story.pages) == PAGES
+
+
+async def test_book_is_still_made_when_requirements_stay_unmet_after_all_attempts():
+    import json as _json
+    from app.providers.base import TextProvider
+
+    profile, data = _football()
+    for page in data["pages"][2:]:
+        page["scene"] = "A boy walks in a green forest with the helper beside him."
+    data["pages"] = [{"text": "Артём шёл по лесу вместе с другом. Они искали мяч и смеялись. — Вот он! — крикнул Артём. Друг радостно кивнул.", "scene": p["scene"]} for p in data["pages"]]
+
+    class Stubborn(TextProvider):
+        simple_writer = True
+        calls = 0
+
+        async def _complete(self, system, messages, model=None):
+            Stubborn.calls += 1
+            return _json.dumps(data, ensure_ascii=False)
+
+    story = await Stubborn().generate_story(profile)
+    assert Stubborn.calls == 3 and len(story.pages) == PAGES        # три попытки, потом берём лучшее вместо ошибки заказа

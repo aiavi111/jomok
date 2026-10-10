@@ -24,6 +24,15 @@ from .writer import (check_story, forms_table, hard_violations, page_limits, pic
 
 MAX_FRIENDS = 3
 
+
+class SoftProblem(StoryValidationError):
+    """Мелкое замечание (деталь просьбы мало видна, помощник не на каждой картинке): книгу можно отдать, если после
+    всех попыток лучше не вышло. story — уже собранная книга."""
+
+    def __init__(self, message: str, story: Story):
+        super().__init__(message)
+        self.story = story
+
 _SAMPLE = """«Дастан и светлячок Тик»
 1. Дастан вышел во двор вечером. Вдруг он увидел: на заборе сидит светлячок, а его огонёк погас. — Мне грустно, — сказал светлячок. — Мой свет пропал!
 2. — Не грусти! — сказал Дастан. — Давай искать твой свет вместе. Светлячок Тик улыбнулся и сел Дастану на плечо.
@@ -44,7 +53,7 @@ _RULES = """Ты детский писатель. Тебя любят за пр�
 5. Взрослые в книге спокойные и добрые. Никто не «боится шагнуть и сидит».
 6. Имя героя не чаще двух раз на странице, дальше «он»/«она» или «мальчик»/«девочка».
 7. Не называй чужих персонажей из мультфильмов, кино и игр, их имена и фирменные приметы: придумывай своих героев и свои имена. Не называй и не описывай реальных знаменитостей (футболистов, артистов, блогеров): если родители просят «как у Роналду», напиши придуманного героя-чемпиона со своим именем и внешностью.
-8. ПОЖЕЛАНИЕ РОДИТЕЛЕЙ (поле request и «любит» в анкете) — закон. Каждая названная деталь (место, например стадион; одежда и номер на футболке; что делает герой; кто с ним) обязана быть в сюжете И в scene нескольких страниц. Выпиши их в requirements: what — по-русски, en — короткое слово или слова для художника по-английски (stadium, jersey number 7), и повторяй en в scene всех страниц, где это видно. Не заменяй и не «улучшай» просьбу своей идеей.
+8. ПОЖЕЛАНИЕ РОДИТЕЛЕЙ (поле request) — закон; «любит» из анкеты просто вплети в сюжет, в requirements его не пиши. Каждая названная деталь (место, например стадион; одежда и номер на футболке; что делает герой; кто с ним) обязана быть в сюжете И в scene нескольких страниц. Выпиши их в requirements: what — по-русски, en — короткое слово или слова для художника по-английски (stadium, jersey number 7), и повторяй en в scene всех страниц, где это видно. Не заменяй и не «улучшай» просьбу своей идеей.
 8а. Если родители просят команду друзей, перечисли их ВСЕХ в friends, назови каждого по имени и покажи каждого на страницах.
 9. Помощник (или друг, о котором просили) виден НА КАЖДОЙ странице рядом с героем: в каждой scene пиши «the helper» (или «the friend»), его рисуют на всех картинках. scene — по-английски, 1–2 предложения для художника: где находятся, что делают и КТО на кадре. Каждая страница в НОВОМ месте и с новым ракурсом (общий план, крупный, снизу, сверху, со спины), своё время суток и свет. Не пиши в scene цвета палитры, море и небо без нужды: только место и действие. Без надписей, вывесок и букв в кадре. В scene никогда не называй персонажей по именам: героя пиши «the hero», помощника «the helper», каждого друга «the friend», взрослого «the parent», чтобы художник нарисовал каждого один раз.
 10. Внешность героя-ребёнка описывает hero_outfit (по-английски): одна простая одежда, одинаковая на всех страницах. Если фото нет (в анкете сказано «фото: нет» или его не упомянуто), добавь цвет и длину волос и цвет глаз из анкеты; если фото есть, лицо и волосы не описывай, их нарисуют по фото.
@@ -144,6 +153,10 @@ def _no_names(scene: str, names_to_words: dict[str, str]) -> str:
     return scene
 
 
+class _Soft(StoryValidationError):
+    """Внутренний признак мягкого замечания: assemble превращает его в SoftProblem вместе с готовой книгой."""
+
+
 def _check_requirements(profile: Profile, data: dict, pages: list[dict], outfit: str) -> None:
     """Просьбы родителей не теряются: каждая должна быть в requirements, её английское слово стоит в нескольких scene
     (или в одежде героя), помощник виден почти на каждой странице, реальных знаменитостей в requirements нет."""
@@ -163,11 +176,11 @@ def _check_requirements(profile: Profile, data: dict, pages: list[dict], outfit:
                                        "его внешность опиши словами (красная форма, золотой мяч).")
         seen = sum(en in s for s in scenes)
         if seen < 3 and en not in outfit.lower():
-            raise StoryValidationError(f"Просьба родителей «{what or en}» почти не видна: слово «{en}» стоит только в {seen} scene. "
+            raise _Soft(f"Просьба родителей «{what or en}» почти не видна: слово «{en}» стоит только в {seen} scene. "
                                        f"Добавь «{en}» в scene всех страниц, где это видно (не меньше трёх), и в сюжет.")
     with_helper = sum(("helper" in s or "friend" in s) for s in scenes)
     if with_helper < PAGES - 1:
-        raise StoryValidationError(f"Помощник должен быть на каждой картинке: «the helper» есть только в {with_helper} scene из {PAGES}. "
+        raise _Soft(f"Помощник должен быть на каждой картинке: «the helper» есть только в {with_helper} scene из {PAGES}. "
                                    "Допиши «the helper» (или «the friend») в scene остальных страниц.")
 
 
@@ -214,7 +227,11 @@ def assemble(profile: Profile, data: dict, rng: random.Random | None = None) -> 
         scene = _english(item.get("scene"), f"pages[{i}].scene", minimum=5)
         pages.append({"text": item.get("text"), "scene": _no_names(scene, names)})
 
-    _check_requirements(profile, data, pages, outfit)
+    soft: str | None = None
+    try:
+        _check_requirements(profile, data, pages, outfit)
+    except _Soft as e:
+        soft = str(e)
     meaning = clean_text(data.get("meaning") or "")
     palette = pick_palette(profile, rng or random.SystemRandom())
     story_data = {
@@ -226,13 +243,22 @@ def assemble(profile: Profile, data: dict, rng: random.Random | None = None) -> 
         "moral": meaning or data.get("wish"),
         "wish": data.get("wish"),
     }
-    return validate_story(story_data, profile.language)
+    story = validate_story(story_data, profile.language)
+    if soft:
+        raise SoftProblem(soft, story)
+    return story
 
 
 def check(profile: Profile, raw: str, rng: random.Random | None = None) -> Story:
     """Разбирает ответ и проверяет только жёсткие правила; мелкие замечания книгу не роняют."""
-    story = assemble(profile, parse_story_json(raw), rng)
+    soft: SoftProblem | None = None
+    try:
+        story = assemble(profile, parse_story_json(raw), rng)
+    except SoftProblem as e:
+        story, soft = e.story, e
     hard = hard_violations(check_story(story, profile, None))
     if hard:
         raise StoryValidationError("найдены ошибки в тексте:\n" + violations_text(hard))
+    if soft:
+        raise soft
     return story

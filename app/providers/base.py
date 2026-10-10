@@ -54,8 +54,22 @@ class TextProvider(ABC):
         from .. import simple_writer as sw
         framework = sw.pick_framework(profile, self.rng)
         log.info("Простой писатель: форма сюжета «%s»", framework.ru if framework else "по пожеланию")
-        story = await self._ask(sw.system_prompt(profile), sw.user_prompt(profile, framework),
-                                lambda raw: sw.check(profile, raw, self.rng), what="текст книги", hint=TEXT_HINT)
+        soft: list[Story] = []                 # книги без жёстких нарушений, где не хватило лишь деталей просьбы: берём лучшую, а не роняем заказ
+
+        def check(raw: str) -> Story:
+            try:
+                return sw.check(profile, raw, self.rng)
+            except sw.SoftProblem as e:
+                soft.append(e.story)
+                raise
+
+        def salvage() -> Story | None:
+            if soft:
+                log.warning("Книга принята без части деталей просьбы родителей: после всех попыток лучше не вышло")
+            return soft[-1] if soft else None
+
+        story = await self._ask(sw.system_prompt(profile), sw.user_prompt(profile, framework), check,
+                                what="текст книги", hint=TEXT_HINT, salvage=salvage)
         if profile.language == "ky" and self.polish:
             story = await self._proofread_ky(profile, None, story)
         return story
