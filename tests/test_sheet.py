@@ -196,3 +196,46 @@ async def test_book_is_still_made_when_requirements_stay_unmet_after_all_attempt
 
     story = await Stubborn().generate_story(profile)
     assert Stubborn.calls == 3 and len(story.pages) == PAGES        # три попытки, потом берём лучшее вместо ошибки заказа
+
+
+def test_multi_word_requirement_is_satisfied_by_any_part_of_it():
+    profile, data = _football()
+    data["requirements"] = [{"what": "спасает город", "en": "child superhero, city rescue"}]
+    for page in data["pages"]:
+        page["scene"] = "A boy on a rooftop during a city rescue with the helper beside him."
+    assert len(assemble(profile, data).pages) == PAGES
+
+
+def test_the_moon_is_not_a_banned_name_when_parents_ask_for_the_moon():
+    from app.writer import check_story
+    text = "Тимур с другом летел к Луне. Вдруг Луна засияла ярко. — Смотри, Луна! — сказал он."
+    for request, banned in (("Тимур строит корабль и летит на Луну", False), ("Тимур идёт гулять во двор", True)):
+        profile, data = _football({"request": request})
+        data["requirements"] = [{"what": "Луна", "en": "moon"}]
+        for page in data["pages"]:
+            page["scene"] = "A boy near the Moon with the helper beside him."
+            page["text"] = text
+        try:
+            story = assemble(profile, data)
+        except StoryValidationError as e:               # мелкие замечания приносят собранную книгу с собой
+            story = e.story
+        codes = {v.code for v in check_story(story, profile, None)}
+        assert ("ban_name" in codes) is banned, request
+
+
+def test_human_adults_are_never_drawn_with_a_face_but_animal_parents_are():
+    from app.simple_writer import is_human_adult
+    assert is_human_adult("a kind mother in a blue dress") and is_human_adult("The parent hugs the hero")
+    assert not is_human_adult("a large calm green dinosaur, the mother of the helper")
+    profile, data = _football()
+    data["family"] = {"kind": "мама", "look": "a kind mother with dark hair in a blue dress"}
+    for page in data["pages"]:
+        page["scene"] = "A boy in a red jersey number 7 on a huge stadium with the helper beside him and his mother."
+    story = assemble(profile, data)
+    assert not story.characters("family")                                        # лицо мамы не рисуем и не описываем
+    assert all("face is never visible" in p.scene for p in story.pages)
+    data["family"] = {"kind": "мама-динозавр", "look": "a large calm green dinosaur with a gentle smile"}
+    for page in data["pages"]:
+        page["scene"] = "A boy in a red jersey number 7 on a huge stadium with the helper and a dinosaur mother."
+    story = assemble(profile, data)
+    assert story.characters("family") and not any("face is never visible" in p.scene for p in story.pages)

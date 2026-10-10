@@ -919,7 +919,8 @@ def _msg(where: str, text: str) -> str:
 def _check_banlist(story: Story, profile: Profile, plan: Plan | None) -> list[Violation]:
     out: list[Violation] = []
     allowed = _parent_words(profile)
-    topic_space = profile.topic == "space" or profile.place == "space"
+    asked = norm(f"{profile.request} {profile.topic_label}")         # родители сами просят про Луну или космос: «Луна» в тексте не имя героини
+    topic_space = profile.topic == "space" or profile.place == "space" or any(w in asked for w in ("лун", "космос", "ракет", "звёзд", "звезд"))
     own = hero_forms_set(profile)
     phrases = _BAN_PHRASES + (_BAN_PHRASES_KY if profile.language == "ky" else [])
     violence = _VIOLENCE + (_VIOLENCE_KY if profile.language == "ky" else [])

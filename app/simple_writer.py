@@ -50,7 +50,7 @@ _RULES = """Ты детский писатель. Тебя любят за пр�
 2. Форма из 8 страниц: 1 — герой встречает того, кому нужна помощь, или находит беду; 2 — решает помочь, и мы понимаем, чего именно они хотят; 3, 4, 5 — три шага к цели в трёх РАЗНЫХ местах, каждый шаг свой и по-своему трудный, герой справляется добротой, смелостью или выдумкой; 6 — самый трудный миг; 7 — успех и радость; 8 — тёплый финал, в конце одна короткая мысль, которая вытекает из того, что герой СДЕЛАЛ.
 3. Говори, как добрая мама: короткие простые слова, живая прямая речь, звуки (ХЛЮП! БУМ!). Каждое слово понятно пятилетнему. Не придумывай технических или волшебных механизмов, ключей, ленточек, пластин и схем. Не пиши странных образов («согрел ладонь боком»). Одно редкое слово не чаще двух раз за всю книгу. Добавь хотя бы один смешной момент.
 4. {limits}. На странице ОДНО понятное действие в ОДНОМ месте и эмоция. Ничего лишнего.
-5. Взрослые в книге спокойные и добрые. Никто не «боится шагнуть и сидит».
+5. Взрослые в книге спокойные и добрые. Никто не «боится шагнуть и сидит». Живых взрослых людей (маму, папу, бабушку, врача, учителя) лицом не показывай: родители не узнают в них своих. В scene такие люди только со спины, силуэтом или одни руки, либо вовсе за кадром (их слышно). Взрослые звери, динозавры и сказочные существа показываются обычно.
 6. Имя героя не чаще двух раз на странице, дальше «он»/«она» или «мальчик»/«девочка».
 7. Не называй чужих персонажей из мультфильмов, кино и игр, их имена и фирменные приметы: придумывай своих героев и свои имена. Не называй и не описывай реальных знаменитостей (футболистов, артистов, блогеров): если родители просят «как у Роналду», напиши придуманного героя-чемпиона со своим именем и внешностью.
 8. ПОЖЕЛАНИЕ РОДИТЕЛЕЙ (поле request) — закон; «любит» из анкеты просто вплети в сюжет, в requirements его не пиши. Каждая названная деталь (место, например стадион; одежда и номер на футболке; что делает герой; кто с ним) обязана быть в сюжете И в scene нескольких страниц. Выпиши их в requirements: what — по-русски, en — короткое слово или слова для художника по-английски (stadium, jersey number 7), и повторяй en в scene всех страниц, где это видно. Не заменяй и не «улучшай» просьбу своей идеей.
@@ -168,20 +168,31 @@ def _check_requirements(profile: Profile, data: dict, pages: list[dict], outfit:
                                    "(место, одежда, номер, действие) в requirements с английским словом en.")
     for i, item in enumerate(reqs if isinstance(reqs, list) else [], start=1):
         en = clean_text(item.get("en") if isinstance(item, dict) else "").lower()
+        variants = [v.strip() for v in re.split(r"[,;/]|\bor\b|\band\b", en) if len(v.strip()) >= 3] or [en]
         what = clean_text(item.get("what") if isinstance(item, dict) else "")
         if not en or cyrillic_ratio(en) > 0.2:
             raise StoryValidationError(f"В requirements[{i}] нет английского слова en (например stadium): художнику нужно слово для кадров.")
         if brand_hits(f"{en} {what}"):
             raise StoryValidationError(f"В requirements[{i}] названа реальная знаменитость или чужой персонаж: замени на придуманного героя со своим именем, "
                                        "его внешность опиши словами (красная форма, золотой мяч).")
-        seen = sum(en in s for s in scenes)
-        if seen < 3 and en not in outfit.lower():
+        seen = sum(any(v in s for v in variants) for s in scenes)      # «child superhero, city rescue»: достаточно любой части
+        if seen < 3 and not any(v in outfit.lower() for v in variants):
             raise _Soft(f"Просьба родителей «{what or en}» почти не видна: слово «{en}» стоит только в {seen} scene. "
                                        f"Добавь «{en}» в scene всех страниц, где это видно (не меньше трёх), и в сюжет.")
     with_helper = sum(("helper" in s or "friend" in s) for s in scenes)
     if with_helper < PAGES - 1:
         raise _Soft(f"Помощник должен быть на каждой картинке: «the helper» есть только в {with_helper} scene из {PAGES}. "
                                    "Допиши «the helper» (или «the friend») в scene остальных страниц.")
+
+
+_HUMAN = re.compile(r"\b(woman|man|mother|mom|father|dad|grandmother|grandfather|grandma|grandpa|lady|doctor|dentist|teacher|aunt|uncle|nurse|parent)\b")
+_NOT_HUMAN = re.compile(r"\b(dinosaur|dragon|mare|horse|bear|cat|dog|fox|hare|rabbit|owl|bird|animal|creature|robot|foal|deer|wolf|sheep|goat|cow|elephant|lion|tiger|monkey|turtle)\b")
+_FACELESS = " Any adult human appears only from behind, as a silhouette or as hands, the face is never visible."
+
+
+def is_human_adult(text: str) -> bool:
+    low = text.lower()
+    return bool(_HUMAN.search(low)) and not _NOT_HUMAN.search(low)
 
 
 def hero_look(profile: Profile, outfit: str) -> str:
@@ -211,7 +222,8 @@ def assemble(profile: Profile, data: dict, rng: random.Random | None = None) -> 
             {"name": h_name, "role": "helper", "look": h_look}]
     cast += [{"name": n, "role": "teammate", "look": look} for n, _k, look in friends]
     family = data.get("family")
-    if isinstance(family, dict) and (family.get("kind") or family.get("look")):
+    human_family = isinstance(family, dict) and is_human_adult(f"{family.get('kind') or ''} {family.get('look') or ''}")
+    if isinstance(family, dict) and (family.get("kind") or family.get("look")) and not human_family:
         kind = clean_text(family.get("kind") or "взрослый")[:40]
         cast.append({"name": kind, "role": "family", "look": _english(family.get("look"), "family.look", minimum=4)})
 
@@ -225,7 +237,10 @@ def assemble(profile: Profile, data: dict, rng: random.Random | None = None) -> 
         if not isinstance(item, dict):
             raise StoryValidationError(f'Страница {i} должна быть объектом {{"text", "scene"}}.')
         scene = _english(item.get("scene"), f"pages[{i}].scene", minimum=5)
-        pages.append({"text": item.get("text"), "scene": _no_names(scene, names)})
+        scene = _no_names(scene, names)
+        if is_human_adult(scene) and _FACELESS.strip() not in scene:        # живой взрослый без лица: родители не узнают в нём своего
+            scene = cut_words(scene, 560).rstrip() + _FACELESS        # лимит сцены 700 знаков: оговорка должна поместиться
+        pages.append({"text": item.get("text"), "scene": scene})
 
     soft: str | None = None
     try:
