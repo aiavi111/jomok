@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from .auth import TgUser
 from .bookgen import PAGE_IMAGE_NAMES, BookResult, build_book, read_cover_meta, read_layout_meta
+from .readpdf import build_mobile_pdf
 from .bookinfo import book_labels
 from .config import Settings
 from .declension import genitive_ru
@@ -567,6 +568,9 @@ class OrderService:
     async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True) -> bool:
         filename = safe_filename(story.title)
         mobile = Path(pdf_path).with_name("mobile.pdf")
+        if not mobile.exists():                         # книга создана до обновления (или повторная отправка): допекаем вариант для телефона
+            made = await asyncio.to_thread(self.ensure_mobile_pdf, order_id)
+            mobile = made or mobile
         caption = f"🎉 Готово! «{story.title}» — персональная книга. Сохраните файл или откройте его на любом устройстве 💛"
         try:
             ok = await self.notifier.send_book(user_id, pdf_path, filename, caption)
@@ -600,6 +604,57 @@ class OrderService:
             raise NotFoundError("Книга ещё не готова или уже удалена.")
         story = Story.from_dict(json.loads((self.order_dir(order_id) / "story.json").read_text(encoding="utf-8")))
         return await self._deliver(order_id, viewer.id, story, pdf, offer=False)
+
+    # ------------------------------------------------------------------ вариант для телефона у уже готовых книг
+    def ensure_mobile_pdf(self, order_id: str) -> Path | None:
+        """Вертикальный PDF 9:16 (mobile.pdf) для готовой книги, у которой его ещё нет (книги, созданные до обновления).
+        Берёт сохранённые текст и картинки; нет файлов или не получилось, возвращает None и ничего не ломает."""
+        if not ORDER_ID_RE.match(order_id):
+            return None
+        row = self.db.get_order(order_id)
+        odir = self.order_dir(order_id)
+        target = odir / "mobile.pdf"
+        if row is None or row["status"] != "done" or row["files_deleted"]:
+            return None
+        if target.exists():
+            return target
+        try:
+            story = Story.from_dict(json.loads((odir / "story.json").read_text(encoding="utf-8")))
+            profile = Profile.from_dict(json.loads(row["profile_json"]))
+            images = {"cover": odir / "cover.jpg", **{f"p{i}": odir / f"p{i}.jpg" for i in range(1, len(story.pages) + 1)}}
+            if not all(p.exists() for p in images.values()):
+                return None
+            return build_mobile_pdf(story, profile, images, target, mock=self.settings.uses_mock,
+                                    cover_has_title=bool(read_cover_meta(odir).get("title_in_image")))
+        except Exception:  # noqa: BLE001 — старая книга без нужных файлов не должна мешать остальным
+            log.exception("Заказ %s: не удалось собрать mobile.pdf", order_id)
+            return None
+
+    def backfill_mobile_pdfs(self) -> int:
+        """При запуске: собирает вариант для телефона у всех готовых книг, где он ещё не собран (по одной, быстро). Возвращает число собранных."""
+        made = 0
+        for row in self.db.recent_done():
+            if not (self.order_dir(row["id"]) / "mobile.pdf").exists() and self.ensure_mobile_pdf(row["id"]):
+                made += 1
+        if made:
+            log.info("Собран вариант для телефона у %s прежних книг", made)
+        return made
+
+    async def send_recent_mobile(self, limit: int = 10) -> int:
+        """Владельцу: вариант для телефона последних готовых книг (чтобы посмотреть новое оформление на прежних заказах)."""
+        sent = 0
+        for row in self.db.recent_done(limit):
+            path = await asyncio.to_thread(self.ensure_mobile_pdf, row["id"])
+            if path is None:
+                continue
+            title = row["title"] or "Книга"
+            try:
+                await self.notifier.send_admin_book(path, safe_filename(title) + " (для телефона).pdf",
+                                                    f"📱 Вариант для телефона. Заказ {row['id']}, «{title}».")
+                sent += 1
+            except Exception:  # noqa: BLE001
+                log.exception("Заказ %s: не удалось отправить вариант для телефона владельцу", row["id"])
+        return sent
 
     # ------------------------------------------------------------------ чтение
     def _owned_order(self, order_id: str, user_id: int):

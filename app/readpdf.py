@@ -203,7 +203,7 @@ def build_mobile_pdf(story: Story, profile: Profile, images: dict[str, Path], ou
     book = _Pages(tmp, profile, story, mock, cover_has_title)
     book.cover(images["cover"])
     book.dedication()
-    for i in range(1, PAGES + 1):
+    for i in range(1, len(story.pages) + 1):                       # старые книги бывали из другого числа страниц
         book.story_page(i, images[f"p{i}"])
     book.finale()
     book.c.save()

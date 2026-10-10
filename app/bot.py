@@ -85,6 +85,7 @@ PUBLIC_COMMANDS = [
 ]
 ADMIN_COMMANDS = [
     BotCommand(command="admin", description="⚙️ Админка: ссылки, оплаты, QR-код"),
+    BotCommand(command="mobile", description="📱 Прежние книги в новом формате для телефона"),
     BotCommand(command="id", description="🆔 Узнать свой ID (для владельца)"),
 ]
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)       # у ссылки на WhatsApp не нужна карточка
@@ -164,6 +165,15 @@ def build_router() -> Router:
             "Если вы владелец бота, впишите это число в строку ADMIN_CHAT_ID в файле .env — "
             "и копии книг и отзывы будут приходить сюда 💌"
         )
+
+    @router.message(Command("mobile"), private)
+    async def on_mobile(message: Message, runtime: "BotRuntime") -> None:
+        if not runtime.settings.is_admin_id(_user_id(message)) or runtime.service is None:
+            await message.answer("Эта команда только для владельца бота.")
+            return
+        await message.answer("Собираю вариант для телефона у последних книг…")
+        sent = await runtime.service.send_recent_mobile(10)
+        await message.answer(f"Готово: отправил {sent} шт." if sent else "Подходящих книг пока нет: у них удалены файлы или книг ещё не было.")
 
     @router.message(Command("admin"), private)
     async def on_admin(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:

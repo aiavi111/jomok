@@ -9,7 +9,7 @@ from app.providers.text_mock import MockTextProvider
 from app.simple_writer import _no_names, assemble, hero_look
 from app.story import PAGES
 
-from .conftest import SAMPLE, ScriptedImage, provider_error
+from .conftest import SAMPLE, ScriptedImage, build_env, make_service, provider_error, tma
 
 
 class SheetImage(ScriptedImage):
@@ -352,3 +352,32 @@ def test_people_the_parents_asked_for_are_allowed_but_relatives_without_a_photo_
     plain = Profile.from_payload({**SAMPLE, "request": "Артём играет на стадионе"})
     assert people_in_scene("Several girls in gowns dance", plain)
     assert "doctor" in requested_people(Profile.from_payload({**SAMPLE, "request": "Малыш идёт к зубному врачу"}))
+
+
+async def test_old_books_get_the_phone_pdf_at_startup_on_resend_and_by_the_owner_command(tmp_path):
+    env = await build_env(tmp_path)
+    try:
+        order_id = await env.create(user_id=42)
+        await env.wait_done(order_id, 42)
+        mobile = env.service.order_dir(order_id) / "mobile.pdf"
+        assert mobile.exists()
+        mobile.unlink()                                                          # как у книги, созданной до обновления
+        assert env.service.backfill_mobile_pdfs() == 1 and mobile.exists()
+        assert env.service.backfill_mobile_pdfs() == 0                           # повторно ничего не делает
+        mobile.unlink()
+        env.service._resent.clear()
+        resp = await env.client.post(f"/api/orders/{order_id}/send", headers=tma(42))
+        assert resp.status == 200 and mobile.exists()                            # повторная отправка допекает вариант и шлёт оба файла
+        names = [b[2] for b in env.notifier.books]
+        assert any("(для телефона)" in n for n in names)
+        mobile.unlink()
+        assert await env.service.send_recent_mobile(5) == 1 and mobile.exists()
+        assert env.notifier.admin_books and "для телефона" in env.notifier.admin_books[-1][1]
+    finally:
+        await env.service.shutdown(); await env.client.close(); env.db.close()
+
+
+def test_a_book_without_files_is_skipped_by_the_phone_pdf_backfill(tmp_path):
+    from app.service import OrderService  # noqa: F401
+    svc = make_service(tmp_path)
+    assert svc.ensure_mobile_pdf("does-not-exist") is None

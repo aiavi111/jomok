@@ -77,6 +77,7 @@ async def amain() -> int:
     if runtime:
         runtime.service = service            # кнопки «Подтвердить/Отклонить» в чате владельца
     await asyncio.to_thread(service.cleanup)
+    asyncio.create_task(asyncio.to_thread(service.backfill_mobile_pdfs), name="mobile-backfill")      # прежним книгам вариант для телефона
 
     app = create_app(settings, db, service, bot_info)
     runner = web.AppRunner(app, access_log=None)

@@ -224,6 +224,9 @@ class Database:
         order = "receipt_at" if status == "payment_review" else "created_at"
         return self._all(f"SELECT * FROM orders WHERE status=? ORDER BY {order} ASC LIMIT ?", (status, limit))
 
+    def recent_done(self, limit: int = 200) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM orders WHERE status='done' AND files_deleted=0 ORDER BY finished_at DESC LIMIT ?", (limit,))
+
     def recent_paid(self, limit: int = 10) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM orders WHERE paid_at IS NOT NULL ORDER BY paid_at DESC LIMIT ?", (limit,))
 
