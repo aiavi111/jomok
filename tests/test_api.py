@@ -320,6 +320,7 @@ async def test_failed_delivery_is_reported_and_can_be_retried(tmp_path):
         resp = await e.client.post(f"/api/orders/{order_id}/send", headers=tma())
         assert (await resp.json())["delivered"] is False
         notifier.deliver = True
+        e.service._resent.clear()                                                 # пауза между отправками не мешает проверке повтора
         resp = await e.client.post(f"/api/orders/{order_id}/send", headers=tma())
         assert (await resp.json())["delivered"] is True
         assert (await (await e.client.get(f"/api/orders/{order_id}", headers=tma())).json())["delivered"] is True

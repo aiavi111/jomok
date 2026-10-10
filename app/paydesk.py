@@ -34,7 +34,9 @@ MAX_SIDE_RECEIPT = 1600
 def prepare_image(raw: bytes, *, max_side: int, fmt: str, min_side: int = 0) -> bytes:
     """Открывает картинку, поворачивает по EXIF, уменьшает и сохраняет заново (заодно убирает лишние метаданные)."""
     try:
-        img = Image.open(io.BytesIO(raw))
+        img = Image.open(io.BytesIO(raw), formats=("JPEG", "PNG", "WEBP"))
+        if img.size[0] * img.size[1] > 40_000_000:            # до load(): сильно сжатая «бомба» не должна съесть память
+            raise ValueError("слишком много пикселей")
         img.load()
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         raise ValidationError("Не получилось открыть картинку. Выберите файл в формате JPEG или PNG.")

@@ -127,7 +127,9 @@ async def build_book(
     # 1. текст
     await on_status("writing")
     story = await text.generate_story(profile)
-    (out_dir / "story.json").write_text(json.dumps(story.to_dict(), ensure_ascii=False), encoding="utf-8")
+    tmp = out_dir / "story.json.tmp"                  # пишем целиком и подменяем: опрос из приложения не прочтёт половину файла
+    tmp.write_text(json.dumps(story.to_dict(), ensure_ascii=False), encoding="utf-8")
+    tmp.replace(out_dir / "story.json")
     await on_story(story)
 
     # 2. картинки

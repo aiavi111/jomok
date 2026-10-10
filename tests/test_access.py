@@ -295,15 +295,27 @@ async def test_credit_is_returned_after_server_restart_interrupts_the_order(clos
     assert closed_env.db.get_order("restartOrder1")["status"] == "error" and closed_env.db.get_credits(USER) == 1
 
 
-async def test_cancelling_a_waiting_order_does_not_give_the_book_back(closed_env):
-    """Возвращаются только книги заказов с ошибкой; отмена самим человеком книгу не возвращает."""
+async def test_person_with_a_book_from_a_link_does_not_pay_by_receipt_again(closed_env):
+    """Ссылка выдаётся после оплаты: касса с чеками её владельца и самого владельца не ждёт."""
     await api(closed_env, "post", "/api/admin/qr", data=form("qr", png()))
     await api(closed_env, "post", "/api/admin/settings", json={"enabled": True})
     await give_access(closed_env, USER, 1)
     status, data = await post_order(closed_env)
-    assert status == 201 and data["status"] == "awaiting_payment" and closed_env.db.get_credits(USER) == 0
-    assert (await closed_env.client.post(f"/api/orders/{data['order_id']}/cancel", headers=tma(USER))).status == 200
-    assert closed_env.db.get_order(data["order_id"])["status"] == "cancelled" and closed_env.db.get_credits(USER) == 0
+    assert status == 201 and data["status"] != "awaiting_payment" and closed_env.db.get_credits(USER) == 0
+    assert (await closed_env.wait_done(data["order_id"], USER))["status"] == "done"
+    owner = await closed_env.create(user_id=ADMIN_ID)
+    assert (await closed_env.wait_done(owner, ADMIN_ID))["status"] == "done"
+
+
+def test_a_cancelled_or_failed_order_gives_the_credit_back_exactly_once(tmp_path):
+    from app.db import Database
+    db = Database(tmp_path / "x.sqlite3")
+    db.add_credits(7, 1)
+    assert db.create_order("o1", 7, "{}", paid=False, status="awaiting_payment", use_credit=True) and db.get_credits(7) == 0
+    db.update_order("o1", status="cancelled")
+    db.update_order("o1", status="error")
+    assert db.get_credits(7) == 1                                             # вернулась один раз, повтор ничего не добавляет
+    db.close()
 
 
 async def test_owner_creates_books_without_credits_and_spends_nothing(closed_env):
@@ -719,3 +731,38 @@ async def test_cleanup_loop_runs_every_cleanup_period_and_survives_a_failing_run
     with pytest.raises(asyncio.CancelledError):
         await main.cleanup_loop(Service())
     assert calls == [1] and pauses == [CLEANUP_PERIOD]
+
+
+async def test_failed_pictures_do_not_deliver_a_book_of_placeholders_and_refund_the_credit(tmp_path):
+    from app.errors import ProviderError
+    e = await build_env(tmp_path, closed=True, image=ScriptedImage(fail=lambda n, p, label: ProviderError("сбой")))
+    try:
+        await give_access(e, USER, 1)
+        order_id = (await post_order(e))[1]["order_id"]
+        end = time.time() + 30
+        while time.time() < end and e.db.get_order(order_id)["status"] not in ("error", "done"):
+            await asyncio.sleep(0.1)
+        assert e.db.get_order(order_id)["status"] == "error" and e.db.get_credits(USER) == 1
+        assert e.notifier.books == []                                      # клиенту книга из заглушек не уходит
+    finally:
+        await e.service.shutdown(); await e.client.close(); e.db.close()
+
+
+async def test_resend_is_rate_limited_and_does_not_copy_the_admin_again(env):
+    order_id = await env.create(user_id=42)
+    await env.wait_done(order_id, 42)
+    first = await env.client.post(f"/api/orders/{order_id}/send", headers=tma(42))
+    second = await env.client.post(f"/api/orders/{order_id}/send", headers=tma(42))
+    assert first.status == 200 and second.status == 409
+    copies = len(env.notifier.admin_books)
+    assert copies == 1                                                    # копия админу была только при первой доставке
+
+
+def test_a_decompression_bomb_is_refused_before_it_is_decoded():
+    import io
+    from PIL import Image
+    from app.imaging import prepare_photo
+    buf = io.BytesIO()
+    Image.new("L", (7000, 7000)).save(buf, "PNG")                         # 49 млн пикселей (Pillow только предупреждает), файл крошечный
+    with pytest.raises(ValidationError, match="пикселях"):
+        prepare_photo(buf.getvalue())

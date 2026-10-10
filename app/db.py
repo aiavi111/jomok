@@ -162,7 +162,7 @@ class Database:
         sets = ", ".join(f"{k}=?" for k in fields)
         with self._tx() as c:
             c.execute(f"UPDATE orders SET {sets} WHERE id=?", (*fields.values(), order_id))
-            if fields.get("status") == "error":
+            if fields.get("status") in ("error", "cancelled"):
                 self._refund_credit(c, order_id)
 
     @staticmethod

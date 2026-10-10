@@ -51,6 +51,9 @@ def cover_crop(im: Image.Image, aspect: float) -> Image.Image:
     return im.crop((0, top, w, top + new_h))
 
 
+ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP")      # остальное (EPS, TIFF и т. п.) не разбираем
+
+
 def prepare_photo(raw: bytes, max_side: int = 1024) -> bytes:
     """Фото ребёнка: проверяем, что это картинка, убираем метаданные (EXIF, геометки), уменьшаем."""
     if len(raw) > MAX_PHOTO_BYTES:
@@ -58,7 +61,9 @@ def prepare_photo(raw: bytes, max_side: int = 1024) -> bytes:
     old_limit = Image.MAX_IMAGE_PIXELS
     Image.MAX_IMAGE_PIXELS = MAX_PHOTO_PIXELS
     try:
-        with Image.open(io.BytesIO(raw)) as im:
+        with Image.open(io.BytesIO(raw), formats=ALLOWED_FORMATS) as im:
+            if im.size[0] * im.size[1] > MAX_PHOTO_PIXELS:       # до load(): «бомба» из сильно сжатой картинки не должна съесть память
+                raise ValidationError("Фото слишком большое по размеру в пикселях. Выберите другой снимок.", field="photo")
             im.load()
             im = ImageOps.exif_transpose(im).convert("RGB")
             im.thumbnail((max_side, max_side), Image.LANCZOS)

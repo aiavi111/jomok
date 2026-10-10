@@ -63,6 +63,9 @@ ACCESS_MESSAGE = "Здравствуйте! Хочу получить ссылк
 # --- обещание про фото: удаляем сразу после создания книги и в любом случае не позже чем через сутки
 PHOTO_TTL = DAY
 CLEANUP_PERIOD = 60 * 60          # как часто main.py запускает cleanup()
+ORDER_TIMEOUT = 30 * 60        # на весь заказ (текст и картинки) не больше 30 минут: подвисший сервис не держит клиента часами
+RESEND_PAUSE = 45              # секунд между повторными отправками одной книги
+MAX_FAILED_PAGES = 2           # больше двух ненарисованных страниц (или обложка) = заказ не удался, книга возвращается
 PHOTO_PURGE_AFTER = PHOTO_TTL - CLEANUP_PERIOD   # режем с запасом на период уборки: фото живёт не дольше суток
 
 GENERIC_ERROR = ("Не получилось создать книгу: на нашей стороне произошёл сбой. "
@@ -111,6 +114,7 @@ class OrderService:
         self.desk = desk or PaymentDesk(db, settings.data_dir, settings.price_text)
         self.orders_dir = Path(settings.data_dir) / "orders"
         self.orders_dir.mkdir(parents=True, exist_ok=True)
+        self._resent: dict[str, float] = {}                                  # когда книгу последний раз отправляли повторно
         self.gen_sem = asyncio.Semaphore(settings.max_parallel_generations)   # книг одновременно на весь сервис
         self.image_sem = asyncio.Semaphore(settings.image_concurrency)         # картинок одновременно
         self._tasks: set[asyncio.Task] = set()
@@ -312,7 +316,7 @@ class OrderService:
             (odir / "photo.jpg").write_bytes(photo)
         if parent:
             (odir / PERSON_FILE).write_bytes(parent)
-        needs_payment = self.desk.required() and not check.paid
+        needs_payment = self.desk.required() and not check.paid and not use_credit and not self.is_admin(user.id)   # по ссылке и владелец уже не платят чеком
         created = self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False),
                                        paid=check.paid, status="awaiting_payment" if needs_payment else "queued",
                                        use_credit=use_credit)       # проверка и списание книги — одной транзакцией
@@ -433,6 +437,8 @@ class OrderService:
 
     def cancel_unpaid(self, order_id: str, user_id: int | None = None) -> None:
         row = self._payment_order(order_id, user_id)
+        if user_id is not None and row["status"] != "awaiting_payment":
+            raise ConflictError("Чек уже отправлен, дождитесь решения владельца.")
         profile = Profile.from_dict(json.loads(row["profile_json"]))
         shutil.rmtree(self.order_dir(order_id), ignore_errors=True)
         self.db.update_order(order_id, status="cancelled", files_deleted=1, pay_note=None,
@@ -504,18 +510,32 @@ class OrderService:
         async def on_story(story: Story) -> None:
             self.db.update_order(order_id, title=story.title)
 
+        interrupted = False
         try:
             async with self.gen_sem:
-                result = await build_book(
-                    profile, self.text, self.image, odir, photo=photo, person_photo=parent, image_sem=self.image_sem,
-                    mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
-                    on_status=on_status, on_story=on_story,
-                )
+                try:
+                    result = await asyncio.wait_for(build_book(
+                        profile, self.text, self.image, odir, photo=photo, person_photo=parent, image_sem=self.image_sem,
+                        mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
+                        on_status=on_status, on_story=on_story,
+                    ), timeout=ORDER_TIMEOUT)
+                except asyncio.TimeoutError:
+                    raise ProviderError("Сервис слишком долго не отвечал. Попробуйте ещё раз позже.") from None
+            if "cover" in result.failed_pages or len(result.failed_pages) > MAX_FAILED_PAGES:
+                # книга из заглушек клиенту не нужна: заказ считается неудавшимся, книга возвращается на счёт
+                raise ProviderError("Не получилось нарисовать иллюстрации. Попробуйте ещё раз позже.")
             self.db.update_order(order_id, status="done", finished_at=time.time())
             log.info("Заказ %s готов", order_id)
             await self._after_done(order_id, user_id, result)
         except asyncio.CancelledError:
-            self.db.update_order(order_id, status="error", error=INTERRUPTED, error_detail="Остановлено")
+            # остановка сервера (деплой): оплаченный заказ не трогаем (ни статус, ни фото), при запуске он продолжится;
+            # неоплаченный получает ошибку и книга возвращается; уже готовую книгу ошибкой не портим
+            current = self.db.get_order(order_id)
+            if current is not None and current["status"] in ACTIVE_STATUSES:
+                if current["paid"]:
+                    interrupted = True
+                else:
+                    self.db.update_order(order_id, status="error", error=INTERRUPTED, error_detail="Остановлено")
             raise
         except ProviderError as e:
             log.error("Заказ %s: сбой внешнего сервиса: %s", order_id, e.message)
@@ -531,8 +551,9 @@ class OrderService:
                                  error_detail=f"{type(e).__name__}: {e}")
             await self.notifier.notify_admin(f"Заказ {order_id}: непредвиденная ошибка {type(e).__name__}")
         finally:
-            photo_path.unlink(missing_ok=True)      # фото больше не нужно — не храним ни дня
-            parent_path.unlink(missing_ok=True)
+            if not interrupted:
+                photo_path.unlink(missing_ok=True)      # фото больше не нужно — не храним ни дня
+                parent_path.unlink(missing_ok=True)
 
     async def _after_done(self, order_id: str, user_id: int, result: BookResult) -> None:
         if result.failed_pages:
@@ -554,14 +575,19 @@ class OrderService:
         self.db.update_order(order_id, delivered=1 if ok else 0)
         if ok and offer:
             await self._offer_print(order_id, user_id)
-        try:
-            await self.notifier.send_admin_book(pdf_path, filename, f"Копия книги. Заказ {order_id}, пользователь {user_id}.")
-        except Exception:  # noqa: BLE001
-            log.exception("Заказ %s: не удалось отправить копию администратору", order_id)
+        if offer:                              # копия админу только при первой отправке, не на каждую повторную
+            try:
+                await self.notifier.send_admin_book(pdf_path, filename, f"Копия книги. Заказ {order_id}, пользователь {user_id}.")
+            except Exception:  # noqa: BLE001
+                log.exception("Заказ %s: не удалось отправить копию администратору", order_id)
         return ok
 
     async def resend(self, order_id: str, viewer: TgUser) -> bool:
         row = self._owned_order(order_id, viewer.id)
+        last = self._resent.get(order_id, 0.0)
+        if time.time() - last < RESEND_PAUSE:                # двойной тап не шлёт PDF несколько раз подряд
+            raise ConflictError("Файл уже отправляется. Подождите минуту и проверьте чат.")
+        self._resent[order_id] = time.time()
         pdf = self.order_dir(order_id) / "book.pdf"
         if row["status"] != "done" or row["files_deleted"] or not pdf.exists():
             raise NotFoundError("Книга ещё не готова или уже удалена.")
