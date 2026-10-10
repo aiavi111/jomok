@@ -316,3 +316,14 @@ def test_hero_gender_and_outfit_are_pinned_in_every_page_prompt():
             prompt = prompts.build_page_prompt(story, profile, i, has_refs=True, photo_ref=True)
             assert "beside the hero" not in prompt and f"{word.capitalize()} runs on a huge stadium" in prompt
             assert word in prompt and f"The hero is a {gender}" in prompt and "blue hoodie" in prompt
+
+
+def test_sheet_prompt_forbids_invented_characters_and_counts_the_real_ones():
+    from app import prompts
+    profile, data = _football()
+    story = assemble(profile, data)
+    prompt = prompts.build_sheet_prompt(story, profile)
+    assert "exactly 1 character," in prompt and "nobody else" in prompt and "dragons" in prompt
+    data["friends"] = [{"name": "Лис", "kind": "лис", "look": "a small orange fox with a green scarf"}]
+    two = prompts.build_sheet_prompt(assemble(profile, data), profile)
+    assert "exactly 2 characters," in two

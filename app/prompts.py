@@ -290,7 +290,10 @@ def build_sheet_prompt(story: Story, profile: Profile) -> str:
     family = "" if person_photo_family(story) else _look(story, profile, "family")       # человека по фото на листе нет: людей на листе не рисуем
     if family:
         looks.append(f"Family member (calm, kind adult): {family}")
-    return _finish(looks, "", style_block(profile), lead=SHEET_LEAD, keep=(_modest(profile),))
+    n = len(looks)
+    only = (f"The sheet contains exactly {n} character{'s' if n > 1 else ''}, listed below, and nobody else: no children, no people, "
+            "no extra animals, creatures or dragons, nothing invented.")
+    return _finish(looks, "", style_block(profile), lead=_join(SHEET_LEAD, only), keep=(_modest(profile),))
 
 
 def hero_gender_word(profile: Profile) -> str:
