@@ -20,7 +20,8 @@ from .overlay import DEFAULT_MODE, MODES
 from .pdfbook import build_pdf
 from .placeholder import draw_placeholder
 from .profile import Profile
-from .prompts import build_cover_prompt, build_page_prompt, build_sheet_prompt, has_sheet_characters
+from .prompts import (build_cover_prompt, build_page_prompt, build_sheet_prompt, has_sheet_characters, person_in_scene,
+                      person_photo_family)
 from .providers.base import ImageProvider, TextProvider
 from .story import PAGES, Story
 
@@ -110,6 +111,7 @@ async def build_book(
     out_dir: Path,
     *,
     photo: bytes | None = None,
+    person_photo: bytes | None = None,
     image_sem: asyncio.Semaphore | None = None,
     mock: bool = False,
     overlay_mode: str = DEFAULT_MODE,
@@ -131,6 +133,7 @@ async def build_book(
     # 2. картинки
     await on_status("drawing")
     use_photo = bool(photo) and image.supports_reference
+    use_parent = bool(person_photo) and image.supports_reference and person_photo_family(story)    # фото человека нужно, только если он есть в книге
     failed: list[str] = []
     notes: list[str] = []
 
@@ -168,13 +171,14 @@ async def build_book(
             log.warning("Лист героев не получился (%s), страницы будут брать образец с обложки", e.message)
             sheet_bytes = b""
     identity_refs = ([photo] if use_photo else []) + ([sheet_bytes] if sheet_bytes else [])
-    cover_refs = identity_refs or None
+    cover_parent = use_parent and person_in_scene(story, story.pages[0].scene)
+    cover_refs = (identity_refs + ([person_photo] if cover_parent else [])) or None    # фото человека всегда последнее
     cover_bytes = b""
     cover_has_title = False
     if image.renders_text:
         # название рисует сама модель; после каждой попытки другая модель читает надпись и сверяет с названием
         for attempt in range(1, COVER_ATTEMPTS + 1):
-            prompt = build_cover_prompt(story, profile, photo_ref=use_photo, title_in_image=True)
+            prompt = build_cover_prompt(story, profile, photo_ref=use_photo, title_in_image=True, person_ref=cover_parent)
             cover_bytes = await make("cover", prompt, cover_refs, "Обложка", story.title)
             if not cover_bytes:
                 break
@@ -192,7 +196,7 @@ async def build_book(
             cover_bytes = b""          # все попытки с ошибкой в названии: рисуем без букв, название ляжет плашкой
             notes.append("Название на обложке дважды получилось с ошибкой, обложка нарисована без букв")
     if not cover_bytes and not (failed and "cover" in failed):
-        cover_prompt = build_cover_prompt(story, profile, photo_ref=use_photo)
+        cover_prompt = build_cover_prompt(story, profile, photo_ref=use_photo, person_ref=cover_parent)
         cover_bytes = await make("cover", cover_prompt, cover_refs, "Обложка", story.title)
         cover_has_title = False
     (out_dir / COVER_META).write_text(json.dumps({"title_in_image": cover_has_title}), encoding="utf-8")
@@ -205,8 +209,10 @@ async def build_book(
         page_refs = [cover_bytes] + ([photo] if use_photo else [])
 
     async def page(i: int) -> None:
-        prompt = build_page_prompt(story, profile, i, has_refs=bool(page_refs))
-        await make(f"p{i}", prompt, page_refs, f"Страница {i}", story.pages[i - 1].scene)
+        with_parent = use_parent and person_in_scene(story, story.pages[i - 1].scene)
+        refs = ((page_refs or []) + [person_photo]) if with_parent else page_refs      # кадры без этого человека его фото не получают
+        prompt = build_page_prompt(story, profile, i, has_refs=bool(page_refs), person_ref=with_parent)
+        await make(f"p{i}", prompt, refs, f"Страница {i}", story.pages[i - 1].scene)
 
     tasks = [asyncio.create_task(page(i)) for i in range(1, PAGES + 1)]
     try:

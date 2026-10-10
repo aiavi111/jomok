@@ -22,6 +22,20 @@ CARTOONS_MAX = 120                   # «Любимые мультфильмы �
 CARTOONS_NOTE = ("ТОЛЬКО ВДОХНОВЕНИЕ: бери роль, настроение и функцию героев (например, весёлая проказница и добрый большой "
                  "опекун), но НЕ имена, одежду, цвета и внешность; названий этих мультфильмов и героев в книге быть не должно")
 AGE_MIN, AGE_MAX = 3, 9
+# Близкий человек, которого можно нарисовать по фото: id -> (русское название, английские слова для сцены, ребёнок ли)
+PERSON_ROLE_INFO = {
+    "mother": ("мама", ("mother", "mom", "mum", "mommy", "mama", "parent")),
+    "father": ("папа", ("father", "dad", "daddy", "papa", "parent")),
+    "grandmother": ("бабушка", ("grandmother", "grandma", "granny")),
+    "grandfather": ("дедушка", ("grandfather", "grandpa", "granddad", "grandad")),
+    "brother": ("брат", ("brother", "boy")),
+    "sister": ("сестра", ("sister", "girl")),
+    "aunt": ("тётя", ("aunt", "auntie")),
+    "uncle": ("дядя", ("uncle",)),
+    "other": ("близкий человек", ()),
+}
+PERSON_ROLES = tuple(PERSON_ROLE_INFO)
+PERSON_LABEL_MAX = 30
 
 
 def _known(value, allowed) -> bool:
@@ -58,10 +72,13 @@ class Profile:
     language: str = "ru"
     dedication: str = ""
     has_photo: bool = False
+    has_person_photo: bool = False       # фото близкого человека (необязательно): тогда он рисуется по фото, иначе людей в книге нет
+    person_role: str = "mother"          # id из PERSON_ROLES: кто на фото
+    person_label: str = ""               # для роли other: как назвать («друг семьи»), по-русски
 
     # ------------------------------------------------------------------ создание
     @classmethod
-    def from_payload(cls, data, *, has_photo: bool = False) -> "Profile":
+    def from_payload(cls, data, *, has_photo: bool = False, has_person_photo: bool = False) -> "Profile":
         if not isinstance(data, dict):
             raise ValidationError("Анкета пришла в неверном виде. Обновите приложение и попробуйте ещё раз.",
                                   field="profile")
@@ -173,13 +190,17 @@ class Profile:
         headscarf = islamic and gender == "girl" and _truthy(data.get("headscarf"))
 
         dedication = text("dedication", "Посвящение")
+        person_role = data.get("person_role")
+        if person_role not in PERSON_ROLES:
+            person_role = "mother"                             # старые клиенты роль не присылают, чужое значение — не повод для ошибки
+        person_label = text("person_label", "Кто это", PERSON_LABEL_MAX) if person_role == "other" else ""
 
         return cls(
             name=name, age=age, gender=gender, hair=hair, eyes=eyes, clothes=clothes,
             likes=likes, traits=traits, place=place, place_custom=place_custom, topic=topic,
             topic_custom=topic_custom, request=request, favorites=favorites, world=world, cartoons=cartoons, style=style, value=value,
             islamic=islamic, headscarf=headscarf, language=language, dedication=dedication,
-            has_photo=bool(has_photo),
+            has_photo=bool(has_photo), has_person_photo=bool(has_person_photo), person_role=person_role, person_label=person_label,
         )
 
     # ------------------------------------------------------------------ хранение
@@ -195,13 +216,24 @@ class Profile:
         """Копия без личных данных — остаётся после удаления файлов, для статистики."""
         d = self.to_dict()
         for key in ("name", "hair", "eyes", "clothes", "dedication", "place_custom", "topic_custom", "request",
-                    "favorites", "cartoons"):
+                    "favorites", "cartoons", "person_label"):
             d[key] = ""
         d["likes"] = []
         d["scrubbed"] = True
         return d
 
     # ------------------------------------------------------------------ для промтов
+    @property
+    def person_ru(self) -> str:
+        """Как зовут человека с фото по-русски: «бабушка», «брат», для «другого» — слово родителя («друг семьи»)."""
+        if self.person_role == "other" and self.person_label:
+            return self.person_label
+        return PERSON_ROLE_INFO.get(self.person_role, PERSON_ROLE_INFO["mother"])[0]
+
+    @property
+    def person_words(self) -> tuple[str, ...]:
+        return PERSON_ROLE_INFO.get(self.person_role, PERSON_ROLE_INFO["mother"])[1]
+
     @property
     def gender_word(self) -> str:
         return "девочка" if self.gender == "girl" else "мальчик"

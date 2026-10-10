@@ -223,17 +223,21 @@ def test_the_moon_is_not_a_banned_name_when_parents_ask_for_the_moon():
         assert ("ban_name" in codes) is banned, request
 
 
-def test_human_adults_are_never_drawn_with_a_face_but_animal_parents_are():
+def test_human_adults_without_a_person_photo_are_a_hard_error_but_animal_parents_are_fine():
+    import pytest
+    from app.errors import StoryValidationError
     from app.simple_writer import is_human_adult
     assert is_human_adult("a kind mother in a blue dress") and is_human_adult("The parent hugs the hero")
     assert not is_human_adult("a large calm green dinosaur, the mother of the helper")
     profile, data = _football()
     data["family"] = {"kind": "мама", "look": "a kind mother with dark hair in a blue dress"}
+    with pytest.raises(StoryValidationError, match="нет людей, кроме героя"):
+        assemble(profile, data)
+    data["family"] = None
     for page in data["pages"]:
         page["scene"] = "A boy in a red jersey number 7 on a huge stadium with the helper beside him and his mother."
-    story = assemble(profile, data)
-    assert not story.characters("family")                                        # лицо мамы не рисуем и не описываем
-    assert all("face is never visible" in p.scene for p in story.pages)
+    with pytest.raises(StoryValidationError, match="страница 1"):
+        assemble(profile, data)
     data["family"] = {"kind": "мама-динозавр", "look": "a large calm green dinosaur with a gentle smile"}
     for page in data["pages"]:
         page["scene"] = "A boy in a red jersey number 7 on a huge stadium with the helper and a dinosaur mother."

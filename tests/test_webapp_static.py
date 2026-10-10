@@ -79,8 +79,8 @@ def test_payload_sends_new_fields_in_contract_order():
 
 def test_story_pages_are_wide_with_text_below_and_no_alternation():
     slide = between(JS, "function storySlide(", "function slidesHtml")
-    assert 'class="art wide"' in slide and "odd" not in slide and "even" not in slide
-    assert slide.index('class="art wide"') < slide.index('class="leaf"')       # картинка всегда первая
+    assert 'class="art wide half"' in slide and "odd" not in slide and "even" not in slide
+    assert slide.index('class="art wide half"') < slide.index('class="leaf"')  # картинка всегда первая
     assert re.search(r"\.slide\.page \.art\.wide \{ aspect-ratio: 2 / 1;", CSS)
     assert re.search(r"\.slide\.page \.art\.wide\.sq \{ aspect-ratio: 1 / 1;", CSS)  # старые квадратные страницы не режем
     assert re.search(r"\.slide \.art \{[^}]*aspect-ratio: 1 / 1", CSS)               # обложка осталась квадратом
@@ -88,7 +88,10 @@ def test_story_pages_are_wide_with_text_below_and_no_alternation():
     text_rule = between(CSS, ".slide.page .txt p {", "}")
     assert "line-height: 1.4" in text_rule and "clamp(20px" in text_rule and "22px)" in text_rule
     assert re.search(r"\.acc \{ color: #D4472F; \}", CSS)
-    assert "В PDF страница идёт разворотом: картинка на оба листа, текст на ней." in JS
+    assert "Здесь страницы листаются по одной. В PDF и в печатной книге это широкие развороты" in JS
+    # на телефоне страница вертикальная: видна половина картинки с героями (с той стороны, где нет текста), чтобы хотелось листать дальше
+    assert "page.text_side === 'left' ? '93%' : '7%'" in JS and 'class="art wide half"' in JS
+    assert re.search(r"\.slide\.page \.art\.wide\.half \{ aspect-ratio: 5 / 6;", CSS) and "object-position: var(--hx, 50%) 50%" in CSS
 
 
 def test_wait_thumbnails_are_wide_pages_and_square_cover():

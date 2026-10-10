@@ -302,6 +302,22 @@ h1.q { margin: 20px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 800;
 .photo-btns .photo-pick { min-height: 136px; padding: 12px 8px; text-align: center; line-height: 1.2; }
 .photo-pick.alt { background: #fff; border-color: var(--line-2); color: var(--fg); }
 .photo-pick.alt .big { background: var(--surface); }
+.person-block { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; padding-top: 20px; border-top: 1.5px solid var(--line); }
+.person-head b { display: block; font-size: 17px; font-weight: 800; }
+.person-head p { margin: 6px 0 0; color: var(--muted); font-size: 15px; font-weight: 600; line-height: 1.4; }
+.role-label { font-size: 15px; font-weight: 800; margin-bottom: -6px; }
+.role-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.role-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 92px; padding: 8px 2px; border: 1.5px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--sh-1);
+  font: inherit; color: var(--fg); cursor: pointer; transition: transform .2s var(--ease), border-color .15s, background-color .15s;
+}
+.role-tile .big { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 15px; background: var(--brand-soft); color: var(--brand-ink); }
+.role-tile .big .ic { width: 28px; height: 28px; }
+.role-tile b { font-size: 13.5px; font-weight: 800; }
+.role-tile:active { transform: scale(.96); }
+.role-tile[aria-checked=true] { border-color: var(--brand); background: var(--brand-wash); box-shadow: 0 0 0 1px var(--brand), var(--sh-1); }
+.role-tile[aria-checked=true] .big { background: var(--brand); color: #fff; --ic-a: rgba(255, 255, 255, .28); }
 .or-line { display: flex; align-items: center; gap: 12px; margin: 20px 0 16px; color: var(--muted); font-size: 14px; font-weight: 700; }
 .or-line::before, .or-line::after { content: ""; flex: 1; height: 1.5px; background: var(--line); border-radius: 1px; }
 .photo-prev { display: flex; align-items: center; gap: 14px; padding: 12px; border-radius: 20px; background: #fff; border: 1.5px solid var(--line); box-shadow: var(--sh-1); }
@@ -499,6 +515,8 @@ h1.q { margin: 20px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 800;
 
 /* страница истории: широкая картинка 2:1 на всю ширину слайда (картинка всегда сверху), под ней бумажная карточка с крупным текстом */
 .slide.page .art.wide { aspect-ratio: 2 / 1; border-radius: 16px; }
+.slide.page .art.wide.half { aspect-ratio: 5 / 6; }          /* вертикальная страница: половина широкой картинки с героями */
+.slide.page .art.wide.half img { object-position: var(--hx, 50%) 50%; }
 .slide.page .art.wide.sq { aspect-ratio: 1 / 1; }          /* страницы старых книг квадратные: не обрезаем */
 .leaf { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 36cqw; padding: 6cqw 6cqw 5cqw; background: var(--paper); }
 .slide.page .txt { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; padding: 1cqw 0; }

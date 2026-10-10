@@ -47,13 +47,11 @@ def style_block(profile: Profile, *, cover: bool = False) -> str:
 # Название на обложке рисует сама модель картинок. Просим сверить написание 20 раз, а дальше текст на картинке
 # всё равно проверяется отдельно (bookgen: модель читает надпись и сравнивает с названием).
 COVER_TITLE_CLAUSE = (
-    "Front cover of a children's picture book. Write the book title exactly once, in large, bold, rounded lettering "
-    "of one clean style: one or two straight horizontal centred lines at the top (no arcs, waves or tilt), solid "
-    "cream-yellow letters with a thick dark indigo outline, flat (no 3D extrusion, gradients or sparkles on the "
-    "letters), even size and spacing: «{title}». Before drawing, "
-    "check the spelling of the title letter by letter twenty times over: every letter exactly as given and in this "
-    "order, with no extra, missing, doubled, swapped, mirrored or invented letters (Cyrillic letters, including "
-    "ү ө ң when present). No other text anywhere on the cover: no subtitle, no name, no signature, no logo."
+    "Front cover of a children's picture book. Write the title exactly once in large bold rounded lettering: one or "
+    "two straight horizontal centred lines at the top, flat cream-yellow letters with a thick dark indigo outline, no "
+    "3D, gradients or sparkles on the letters: «{title}». Check the spelling letter by letter twenty times over: every "
+    "letter exactly as given and in this order, no extra, missing, doubled, swapped, mirrored or invented letters "
+    "(Cyrillic, including ү ө ң when present). No other text on the cover: no subtitle, name, signature or logo."
 )
 COVER_CALM = ("The background is beautiful but calm and not overloaded: soft depth of field, one clear focal point, "
               "nothing competing with the hero and the title.")
@@ -189,7 +187,24 @@ def _team_looks(story: Story, profile: Profile) -> list[str]:
     return [_cut_head(look, TEAM_LOOK_MAX) for look in [_look(story, profile, "helper"), *mates] if look]
 
 
-def cast_clause(story: Story, profile: Profile, scene: str) -> str:
+PERSON_PHOTO_CLAUSE = ("The adult/person in the scene looks exactly like the person in the last reference photo "
+                       "(same face, hair, skin tone).")
+PERSON_SHOWN = re.compile(r"\b(?:person|parent|parents|mother|mom|mum|mommy|mama|father|dad|daddy|papa|grandmother|grandma|granny|grandfather|"
+                          r"grandpa|granddad|grandad|brother|sister|sibling|aunt|auntie|uncle|relative|family)\b", re.I)
+
+
+def person_photo_family(story: Story) -> bool:
+    """В cast есть взрослый, который рисуется по фото близкого человека (его внешность — «the person from the reference photo»)."""
+    family = story.character("family")
+    return bool(family) and "reference photo" in family.look.lower()
+
+
+def person_in_scene(story: Story, scene: str) -> bool:
+    """Близкий человек по фото показан в этом кадре: тогда фото человека уходит в картинку последним референсом."""
+    return person_photo_family(story) and bool(PERSON_SHOWN.search(scene))
+
+
+def cast_clause(story: Story, profile: Profile, scene: str, *, person_ref: bool = False) -> str:
     """Помощник и препятствие этой страницы (герой приходит по референсу или из hero_visual).
 
     Режиссёр называет героев в сцене словами "the helper" и "the obstacle": по ним видно, кто в кадре. Если в сцене
@@ -208,7 +223,9 @@ def cast_clause(story: Story, profile: Profile, scene: str) -> str:
     if obstacle and "obstacle" in low:
         parts.append(f"The obstacle in this scene: {obstacle}.")
     family = _look(story, profile, "family")
-    if family and FAMILY_SHOWN.search(scene):          # взрослый или родной в этом кадре (в конце книги): добрый, спокойный, виден целиком
+    if family and person_ref and person_in_scene(story, scene):       # человек по фото: внешность берётся с референса
+        parts.append("The person from the last reference photo, calm and kind, clearly visible and drawn the same on every page.")
+    elif family and FAMILY_SHOWN.search(scene):          # взрослый или родной в этом кадре (в конце книги): добрый, спокойный, виден целиком
         parts.append(f"The family member, a calm and kind adult, clearly visible and drawn the same on every page: {family}.")
     world = world_clause(story, profile)
     if world:
@@ -227,7 +244,8 @@ def cover_helper_clause(story: Story, profile: Profile) -> str:
     return f"Right next to the hero stands the hero's helper, a little smaller than the hero, both clearly visible: {helper}."
 
 
-def build_cover_prompt(story: Story, profile: Profile, *, photo_ref: bool, title_in_image: bool = False) -> str:
+def build_cover_prompt(story: Story, profile: Profile, *, photo_ref: bool, title_in_image: bool = False,
+                       person_ref: bool = False) -> str:
     """Обложка (квадрат 1:1): герой крупным планом, рядом с ним помощник, за ними мир книги.
 
     title_in_image=True: модель рисует название книги крупными буквами внутри картинки (имя ребёнка в названии
@@ -236,16 +254,17 @@ def build_cover_prompt(story: Story, profile: Profile, *, photo_ref: bool, title
     world = cut_words(scrub_name(story.pages[0].scene, profile.name, profile.gender), COVER_WORLD_MAX)
     hero = scrub_name(story.hero_visual, profile.name, profile.gender)
     friends = world_clause(story, profile, limit=COVER_FRIENDS_MAX, cover=True)
+    parent = PERSON_PHOTO_CLAUSE if person_ref and person_in_scene(story, story.pages[0].scene) else ""
     helper = cover_helper_clause(story, profile)
     if title_in_image:
         framing = "The main hero, smiling warmly and shown from the knees up, fills the lower centre of the cover."
         head = [framing, helper, friends, f"The story's world is softly behind: {world}", hero]
-        keep = (photo_instruction(profile) if photo_ref else "", _modest(profile), COVER_CALM)
+        keep = (photo_instruction(profile) if photo_ref else "", parent, _modest(profile), COVER_CALM)
         return _finish(head, story.style_note, style_block(profile, cover=True),
                        lead=COVER_TITLE_CLAUSE.format(title=story.title.strip()), keep=keep)
     framing = "Book cover illustration: a close-up portrait of the main hero smiling warmly."
     return _finish([framing, helper, friends, f"The story's world is behind: {world}", hero], story.style_note,
-                   style_block(profile), keep=(photo_instruction(profile) if photo_ref else "", _modest(profile)))
+                   style_block(profile), keep=(photo_instruction(profile) if photo_ref else "", parent, _modest(profile)))
 
 
 SHEET_LEAD = ("Character model sheet on a plain, seamless pure-white studio background, like a catalogue cut-out: nothing "
@@ -256,7 +275,8 @@ SHEET_LEAD = ("Character model sheet on a plain, seamless pure-white studio back
 
 def has_sheet_characters(story: Story) -> bool:
     """Лист нужен, если в книге есть кто-то кроме героя-ребёнка: помощник, друзья команды или взрослый."""
-    return any(c.role in ("helper", "teammate", "family") for c in story.cast)
+    return any(c.role in ("helper", "teammate") or (c.role == "family" and "reference photo" not in c.look.lower())
+               for c in story.cast)
 
 
 def build_sheet_prompt(story: Story, profile: Profile) -> str:
@@ -266,13 +286,13 @@ def build_sheet_prompt(story: Story, profile: Profile) -> str:
     helper = _look(story, profile, "helper")
     looks = [f"Helper: {helper}"] if helper else []
     looks += [f"Friend: {_cut_head(c.look, TEAM_LOOK_MAX)}" for c in story.characters("teammate")]
-    family = _look(story, profile, "family")
+    family = "" if person_photo_family(story) else _look(story, profile, "family")       # человека по фото на листе нет: людей на листе не рисуем
     if family:
         looks.append(f"Family member (calm, kind adult): {family}")
     return _finish(looks, "", style_block(profile), lead=SHEET_LEAD, keep=(_modest(profile),))
 
 
-def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: bool) -> str:
+def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: bool, person_ref: bool = False) -> str:
     """Страница index (1..PAGES): широкая иллюстрация на весь разворот (2:1). Композиция: герои на одной половине,
     другая спокойная и пустая под текст (справа у нечётных страниц, слева у чётных). Герой приходит по референсу
     (без них hero_visual вставляется дословно), помощник и препятствие страницы описаны текстом из cast."""
@@ -282,5 +302,6 @@ def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: b
         hero = same_character(profile)
     else:
         hero = scrub_name(story.hero_visual, profile.name, profile.gender)
-    return _finish([scene, cast_clause(story, profile, raw_scene), hero], story.style_note, style_block(profile),
-                   lead=page_layout_clause(index, has_refs=has_refs), keep=(_modest(profile),))
+    parent = PERSON_PHOTO_CLAUSE if person_ref and person_in_scene(story, raw_scene) else ""
+    return _finish([scene, cast_clause(story, profile, raw_scene, person_ref=person_ref), hero], story.style_note,
+                   style_block(profile), lead=page_layout_clause(index, has_refs=has_refs), keep=(parent, _modest(profile)))

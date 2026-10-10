@@ -151,6 +151,10 @@
     hero: '<path class="a" d="M12 3.5l7 2.6v5.4c0 4.2-2.8 7.4-7 9-4.2-1.6-7-4.8-7-9V6.1z"/><path class="b" d="M12.8 8l-2.8 4h2.4l-.8 3.6 3-4.2h-2.4z"/>',
     chest: '<path class="a" d="M4 10.2c0-2.6 2-4.2 4.4-4.2h7.2c2.4 0 4.4 1.6 4.4 4.2z"/><rect class="a" x="4" y="10.2" width="16" height="9.3" rx="1.6"/><path d="M4 12.8h16"/><rect class="b" x="10.4" y="11.4" width="3.2" height="3.4" rx="1"/>',
     boat: '<path class="a" d="M11 4v10H5.2z"/><path class="b" d="M13.4 6.4V14H19z"/><path class="a" d="M4 16.4h16l-2.4 3.5H6.4z"/>',
+    mom: '<path class="b" d="M7.4 15c.9-1.4 1-3.2.9-5.2C8.3 6.2 9.9 4.4 12 4.4s3.7 1.8 3.7 5.4c-.1 2 0 3.8.9 5.2z"/><circle class="a" cx="12" cy="10.2" r="3.1"/><path d="M5 20c.4-3.6 3.1-5.4 7-5.4s6.6 1.8 7 5.4z"/>',
+    dad: '<circle class="a" cx="12" cy="10" r="3.4"/><path class="b" d="M8.4 9.2c.3-2.6 1.7-3.9 3.6-3.9s3.3 1.3 3.6 3.9c-1.2-.8-2.2-1.4-3.6-1.4s-2.4.6-3.6 1.4z"/><path d="M5 20c.4-3.6 3.1-5.4 7-5.4s6.6 1.8 7 5.4zM10.4 11.6c1 .6 2.2.6 3.2 0"/>',
+    granny: '<circle class="b" cx="12" cy="4.6" r="1.9"/><circle class="a" cx="12" cy="10.6" r="3.5"/><path d="M10 10.4v.01M14 10.4v.01M9.8 12.4c1.3 1 3.1 1 4.4 0"/><path class="b" d="M8.6 9.4c.6-1.8 1.9-2.5 3.4-2.5s2.8.7 3.4 2.5c-1.2-.7-2.2-1-3.4-1s-2.2.3-3.4 1z"/><path d="M5 20.2c.4-3.6 3.1-5.2 7-5.2s6.6 1.600 7 5.200z"/>',
+    grandpa: '<circle class="a" cx="12" cy="10" r="3.6"/><path class="b" d="M8.4 9c-.2-2.200.6-3.700 1.800-4.100M15.600 9c.2-2.200-.6-3.700-1.800-4.100"/><circle cx="10.400" cy="9.800" r="1.100"/><circle cx="13.600" cy="9.800" r="1.100"/><path d="M11.500 9.800h1M9.800 12.600c1.300.9 3.100.9 4.400 0M5 20.200c.4-3.600 3.100-5.200 7-5.200s6.600 1.600 7 5.200z"/>',
     friends: '<circle class="b" cx="16.2" cy="8.6" r="2.7"/><path class="b" d="M13.4 14.2c.8-.4 1.7-.6 2.8-.6 2.8 0 4.6 1.6 4.8 4.9h-6.4"/><circle class="a" cx="8.4" cy="8.2" r="3"/><path class="a" d="M2.8 19.4c.3-3.6 2.6-5.6 5.6-5.6s5.3 2 5.6 5.6z"/>',
     tooth: '<path class="a" d="M7.6 3.8c1.6 0 2.5.7 4.4.7s2.8-.7 4.4-.7c2.2 0 3.6 1.9 3.4 4.6-.2 2.2-1 3.6-1.4 5.6-.4 2-.6 6-2.4 6-1.4 0-1.3-3.4-2.4-4.6-.4-.5-1.1-.5-1.6-.5s-1.2 0-1.6.5c-1.1 1.2-1 4.6-2.4 4.6-1.8 0-2-4-2.4-6-.4-2-1.2-3.4-1.4-5.6C4 5.7 5.4 3.8 7.6 3.8z"/>',
     tree: '<path class="a" d="M12 3l5.5 7h-3l4 5.5h-13l4-5.5h-3z"/><path class="b" d="M10.4 15.5h3.2V20h-3.2z"/>',
@@ -253,13 +257,13 @@
     return Object.assign({
       name: '', age: null, gender: null, hair: '', eyes: '', clothes: '', likes: [], traits: [],
       value: null, topic: null, topic_custom: '', world: null, style: null, request: '',
-      islamic: false, headscarf: false, language: null, dedication: '', photo_consent: false,
+      islamic: false, headscarf: false, language: null, dedication: '', photo_consent: false, person_role: 'mother', person_label: '', person_consent: false,
     }, keep || {});
   }
 
   const S = {
     cfg: null, screen: 'boot', steps: [], idx: 0, returnToSummary: false, header: null,
-    a: freshAnswers(), photo: null, photoUrl: null,
+    a: freshAnswers(), photo: null, photoUrl: null, person: null, personUrl: null,
     orderId: null, order: null, pollId: 0, pollFails: 0, stage: 0, tipTimer: null, tipIndex: 0,
     fb: { rating: null, would_pay: null, comment: '', sent: false },
     adminTab: 'checks', admin: null, adminTimer: null, payTimer: null, payId: 0,
@@ -545,14 +549,14 @@
       hint: () => (S.cfg.photo_supported
         ? 'Сфотографируйте малыша, и художник нарисует героя на него похожим. Это необязательно: можно просто описать словами.'
         : 'Необязательно, но тогда герой на картинках будет очень похож на малыша.'),
-      body: () => (S.cfg.photo_supported ? '<div class="photo-box" id="photo-box"></div><p class="or-line"><span>или опишите словами</span></p>' : '') + [
+      body: () => (S.cfg.photo_supported ? '<div class="photo-box" id="photo-box"></div>' + (personSupported() ? '<div class="person-block" id="person-block"></div>' : '') + '<p class="or-line"><span>или опишите словами</span></p>' : '') + [
         ['hair', 'Волосы', 'Например: тёмные кудряшки'],
         ['eyes', 'Глаза', 'Например: зелёные'],
         ['clothes', 'Одежда', 'Например: красная куртка и синие джинсы'],
       ].map((f) => '<label class="field"><span class="lbl">' + f[1] + '</span><input class="input" data-field="' + f[0] + '" maxlength="120" autocomplete="off" enterkeyhint="next" placeholder="' + f[2] + '" value="' + esc(S.a[f[0]]) + '"></label>').join(''),
-      isEmpty: () => !S.photo && !S.a.hair.trim() && !S.a.eyes.trim() && !S.a.clothes.trim(),
-      valid: () => !S.photo || S.a.photo_consent,
-      mount() { if (S.cfg.photo_supported) refreshPhoto(); else focusField(null, 'input'); },
+      isEmpty: () => !S.photo && !S.person && !S.a.hair.trim() && !S.a.eyes.trim() && !S.a.clothes.trim(),
+      valid: () => (!S.photo || S.a.photo_consent) && (!S.person || S.a.person_consent),
+      mount() { if (S.cfg.photo_supported) { refreshPhoto(); refreshPerson(); } else focusField(null, 'input'); },
     },
     likes: {
       title: () => 'Что любит ' + nameShown() + '?',
@@ -734,6 +738,7 @@
       ['age', 'Возраст', a.age + ' ' + plural(a.age, ['год', 'года', 'лет'])],
       ['gender', 'Герой', a.gender === 'girl' ? 'Девочка' : 'Мальчик'],
       ['appearance', 'Внешность', look || 'не указана'],
+      ...(personSupported() ? [['appearance', 'Фото близкого человека', S.person ? 'есть (' + personWord() + ' нарисуется по фото)' : 'нет, в книге только малыш и придуманные герои']] : []),
       ['likes', 'Любит', a.likes.join(', ')],
       ['traits', 'Характер', traits],
       ['value', 'Чему учит книга', value],
@@ -747,7 +752,7 @@
     ];
     const left = S.cfg.limits.remaining_today;
     const warn = S.cfg.privacy_warning ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(S.cfg.privacy_warning) + '</span></div>' : '';
-    const promise = S.photo ? '<div class="notice promise" role="note">' + icon('lock') + '<b>' + esc(PHOTO_PROMISE) + '</b></div>' : '';
+    const promise = (S.photo || S.person) ? '<div class="notice promise" role="note">' + icon('lock') + '<b>' + esc(PHOTO_PROMISE) + '</b></div>' : '';
     const acc = S.cfg.access;
     const cost = acc && acc.closed && !isAdmin() && typeof acc.credits === 'number'
       ? 'Будет использована 1 книга по вашей ссылке (доступно: ' + acc.credits + '). '
@@ -849,6 +854,43 @@
     updateFooter();
   }
 
+  const personSupported = () => !!(S.cfg && S.cfg.photo_supported && S.cfg.person_photo_supported);
+  const PERSON_PROMISE = 'Это фото удаляется так же, как фото ребёнка: после создания книги, не позднее чем через 24 часа.';
+
+  const PERSON_ROLES = [
+    { id: 'mother', label: 'Мама', i: 'mom' }, { id: 'father', label: 'Папа', i: 'dad' },
+    { id: 'grandmother', label: 'Бабушка', i: 'granny' }, { id: 'grandfather', label: 'Дедушка', i: 'grandpa' },
+    { id: 'brother', label: 'Брат', i: 'boy' }, { id: 'sister', label: 'Сестра', i: 'girl' },
+    { id: 'other', label: 'Другой', i: 'friends' },
+  ];
+  const personRole = () => PERSON_ROLES.find((r) => r.id === S.a.person_role) || PERSON_ROLES[0];
+  const personWord = () => (S.a.person_role === 'other' && S.a.person_label.trim() ? S.a.person_label.trim() : personRole().label.toLowerCase());
+
+  function refreshPerson() {
+    const box = document.getElementById('person-block');
+    if (!box) return;
+    const head = '<div class="person-head"><b>Фото близкого человека (необязательно)</b>' +
+      '<p>Если хотите, чтобы этот человек был в книге, добавьте фото. Без фото в книге будут только малыш и придуманные герои.</p></div>';
+    const who = '<div class="role-label" id="l-role">Кто это?</div><div class="role-grid" role="radiogroup" aria-labelledby="l-role">' + choiceButtons('person_role',
+      PERSON_ROLES.map((r) => ({ id: r.id, html: '<span class="big" aria-hidden="true">' + icon(r.i) + '</span><b>' + r.label + '</b>' })), 'role-tile') + '</div>' +
+      (S.a.person_role === 'other' ? '<label class="field"><span class="lbl">Кто именно?</span><input class="input" data-field="person_label" maxlength="30" autocomplete="off" placeholder="Например: друг семьи" value="' + esc(S.a.person_label) + '"></label>' : '');
+    const note = '<p class="privacy-note">' + icon('lock') + '<span>' + esc(PERSON_PROMISE) + '</span></p>';
+    if (!S.person) {
+      box.innerHTML = head + who + '<div class="photo-btns"><label class="photo-pick" for="pfile-cam" tabindex="0"><span class="big" aria-hidden="true">' + icon('camera') + '</span>Сфотографировать</label>' +
+        '<label class="photo-pick alt" for="pfile" tabindex="0"><span class="big" aria-hidden="true">' + icon('image') + '</span>Выбрать из галереи</label></div>' +
+        '<input type="file" class="vh" id="pfile-cam" accept="image/*" capture="user"><input type="file" class="vh" id="pfile" accept="image/*">' + note;
+    } else {
+      box.innerHTML = head + who + '<div class="photo-prev"><img src="' + S.personUrl + '" alt="Фото: ' + esc(personWord()) + '"><div class="t">' + icon('done') + 'Фото добавлено</div><button type="button" class="btn ghost small" data-act="person-remove">' + icon('trash') + 'Убрать</button></div>' +
+        '<label class="check-row"><input type="checkbox" id="consent-person" data-field="person_consent"' + (S.a.person_consent ? ' checked' : '') + '><span>Я согласен(на) на обработку фото этого человека для создания книги</span></label>' + note;
+    }
+    updateFooter();
+  }
+
+  function clearPerson() {
+    if (S.personUrl) URL.revokeObjectURL(S.personUrl);
+    S.person = null; S.personUrl = null; S.a.person_consent = false;
+  }
+
   function loadBitmap(file) {
     if (window.createImageBitmap) {
       return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => loadImg(file));
@@ -878,8 +920,10 @@
   const isPlainPhoto = (file) => /^image\/(jpeg|png|webp)$/i.test(file.type || '') || /\.(jpe?g|png|webp)$/i.test(file.name || '');
   const isHeic = (file) => /heic|heif/i.test((file.type || '') + ' ' + (file.name || ''));
 
-  async function onPhotoChosen(file) {
+  async function onPhotoChosen(file, who) {
     if (!file) return;
+    const person = who === 'person';
+    const have = person ? S.person : S.photo;
     let blob = null;
     try {
       blob = await downscale(file, 1024);
@@ -889,10 +933,17 @@
       if (isPlainPhoto(file) && file.size <= PHOTO_LIMIT) blob = file;
     }
     if (!blob) {
-      if (S.photo) return;                 // другой снимок уже добавлен (два выбора подряд): запоздалую ошибку не показываем
+      if (have) return;                    // другой снимок уже добавлен (два выбора подряд): запоздалую ошибку не показываем
       showFormError(isHeic(file)
         ? 'Это фото в формате HEIC, его не удалось открыть. Выберите другой снимок или включите «Наиболее совместимый» в настройках камеры (Настройки → Камера → Форматы).'
         : 'Не получилось открыть это фото' + (file.type ? ' (' + file.type + ')' : '') + '. Выберите другой снимок в формате JPEG или PNG.');
+      return;
+    }
+    if (person) {
+      clearPerson();
+      S.person = blob; S.personUrl = URL.createObjectURL(blob);
+      haptic.select();
+      refreshPerson();
       return;
     }
     if (S.photoUrl) URL.revokeObjectURL(S.photoUrl);
@@ -917,6 +968,7 @@
     if (!stylePicked()) S.a.style = defaultStyle();      // шаг обязательный, но уже с выбранным «3D-мультик»
     if (S.photoUrl) URL.revokeObjectURL(S.photoUrl);
     S.photo = null; S.photoUrl = null;
+    clearPerson();
     S.steps = buildSteps();
     S.idx = 0;
     S.returnToSummary = false;
@@ -1007,6 +1059,7 @@
     $$('[data-field="' + field + '"]').forEach((b) => b.setAttribute('aria-checked', String(value != null && String(b.dataset.value) === String(value))));
     if (field === 'topic') refreshCustom(field, value === 'custom');
     if (field === 'world') refreshWorldNote();
+    if (field === 'person_role') refreshPerson();
     updateFooter();
     const st = STEP[S.steps[S.idx]];
     if (st.auto && value !== 'custom') {                 // «свой вариант»: сначала нужно вписать текст
@@ -1026,8 +1079,9 @@
       value: a.value,
       topic: a.topic, topic_custom: a.topic === 'custom' ? a.topic_custom.trim() : '', request: a.request.trim(),
       islamic: a.islamic, headscarf: a.headscarf, language: a.language,
-      dedication: a.dedication.trim(), photo_consent: !!(S.photo && a.photo_consent),
+      dedication: a.dedication.trim(), photo_consent: !!((S.photo && a.photo_consent) || (S.person && a.person_consent)),
     };
+    if (S.person) { body.person_role = personRole().id; if (body.person_role === 'other') body.person_label = a.person_label.trim(); }
     if (worldList().length) {                      // сервер без миров этих полей не знает: не шлём
       body.world = worldPicked() ? a.world : null; // пропустили шаг: null
     }
@@ -1042,10 +1096,11 @@
     hideFormError();
     try {
       let res;
-      if (S.photo) {
+      if (S.photo || S.person) {
         const form = new FormData();
         form.append('profile', JSON.stringify(payload()));
-        form.append('photo', S.photo, 'photo.jpg');
+        if (S.photo) form.append('photo', S.photo, 'photo.jpg');
+        if (S.person) form.append('person_photo', S.person, 'person.jpg');
         res = await api('/api/orders', { method: 'POST', form });
       } else {
         res = await api('/api/orders', { method: 'POST', json: payload() });
@@ -1074,7 +1129,7 @@
       }
     }
   }
-  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', style: 'style', request: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance' };
+  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', style: 'style', request: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance', person_photo: 'appearance' };
 
   /* ===================================================================== ожидание */
   const STAGES = [['pencil', 'Пишу книгу'], ['image', 'Рисую обложку'], ['palette', 'Иллюстрации'], ['book', 'Собираю книгу']];
@@ -1244,7 +1299,10 @@
      Чередования «картинка / текст» нет: картинка всегда сверху. В PDF та же страница идёт разворотом, текст лежит на картинке. */
   function storySlide(page, i) {
     const n = i + 1;
-    const art = page.image_url ? '<div class="art wide"><img src="' + esc(page.image_url) + '" alt="Иллюстрация к странице ' + n + '" decoding="async"></div>' : '';
+    // на экране телефона страница вертикальная: показываем ту половину широкой картинки, где герои (текст лежит на другой половине),
+    // поэтому следующие картинки не видны заранее и хочется листать дальше; в PDF картинка остаётся целым широким разворотом
+    const heroX = page.text_side === 'left' ? '93%' : '7%';
+    const art = page.image_url ? '<div class="art wide half" style="--hx:' + heroX + '"><img src="' + esc(page.image_url) + '" alt="Иллюстрация к странице ' + n + '" decoding="async"></div>' : '';
     const leaf = '<div class="leaf"><div class="txt"><p>' + accentHtml(page) + '</p></div>' + folioHtml(n) + '</div>';
     return '<article class="slide page" aria-label="Страница ' + n + '">' + art + leaf + '</article>';
   }
@@ -1329,7 +1387,7 @@
       '<span class="count" id="pager-count" aria-live="polite">1 / ' + count + '</span>' +
       '<button type="button" class="pn" data-act="pager-next" aria-label="Следующая страница">' + icon('next') + '</button></div>' +
       '<div class="pager" id="pager" tabindex="0" role="region" aria-roledescription="карусель" aria-label="Страницы книги">' + slidesHtml(o) + '</div>' +
-      '<p class="pager-cap">В PDF страница идёт разворотом: картинка на оба листа, текст на ней.</p></div>' +
+      '<p class="pager-cap">Здесь страницы листаются по одной. В PDF и в печатной книге это широкие развороты: картинка на оба листа, текст на ней.</p></div>' +
       printHtml() + feedbackHtml() +
       '<button type="button" class="btn secondary again" data-act="again">' + icon('gift') + 'Сделать ещё одну, для брата или сестры</button>' +
       '<footer class="footer"><button type="button" class="btn" data-act="download">' + icon('download') + 'Скачать PDF</button></footer></section>';
@@ -1863,6 +1921,7 @@
       $('.body').innerHTML = STEP.islamic.body();
       const again = $('[data-field="' + field + '"]'); if (again) again.focus({ preventScroll: true });
     },
+    'person-remove': () => { clearPerson(); refreshPerson(); },
     'photo-remove': () => { if (S.photoUrl) URL.revokeObjectURL(S.photoUrl); S.photo = null; S.photoUrl = null; S.a.photo_consent = false; refreshPhoto(); },
     retry: () => { if (S.retry) S.retry(); else boot(); },
     'retry-order': async () => { await refreshConfig(); S.a.name ? go(S.steps.length - 1, 'back') : showWelcome(); },
@@ -1943,7 +2002,8 @@
   }, true);
 
   document.addEventListener('change', (ev) => {
-    if (ev.target.id === 'file' || ev.target.id === 'file-cam') onPhotoChosen(ev.target.files && ev.target.files[0]);
+    if (ev.target.id === 'file' || ev.target.id === 'file-cam') onPhotoChosen(ev.target.files && ev.target.files[0], 'child');
+    if (ev.target.id === 'pfile' || ev.target.id === 'pfile-cam') onPhotoChosen(ev.target.files && ev.target.files[0], 'person');
     if (ev.target.id === 'receipt-file') { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; uploadReceipt(f); }
     if (ev.target.id === 'qr-file') { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; uploadQr(f); }
   });

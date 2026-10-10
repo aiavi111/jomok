@@ -128,6 +128,7 @@ async def get_config(request: web.Request) -> web.Response:
         "mock": settings.uses_mock,
         "dev_mode": settings.dev_mode,
         "photo_supported": service.photo_supported(),
+        "person_photo_supported": service.photo_supported(),      # фото близкого человека (старые клиенты и серверы этого поля не знают)
         "privacy_warning": settings.privacy_warning,
         "price_text": service.price_text(),
         "free_in_test": not service.desk.required(),
@@ -150,11 +151,26 @@ async def get_config(request: web.Request) -> web.Response:
     })
 
 
-async def _read_order_request(request: web.Request) -> tuple[dict, bytes | None]:
+async def _read_photo_part(part, label: str) -> bytes | None:
+    chunks, size = [], 0
+    while True:
+        chunk = await part.read_chunk(64 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > MAX_PHOTO_BYTES:
+            raise ValidationError(f"{label} слишком большое. Выберите снимок поменьше (до 8 МБ).",
+                                  field="person_photo" if label.startswith("Фото близкого") else "photo")
+        chunks.append(chunk)
+    return b"".join(chunks) or None
+
+
+async def _read_order_request(request: web.Request) -> tuple[dict, bytes | None, bytes | None]:
     if request.content_type.startswith("multipart/"):
         reader = await request.multipart()
         payload: dict | None = None
         photo: bytes | None = None
+        parent: bytes | None = None
         async for part in reader:
             if part.name == "profile":
                 raw = await part.read(decode=False)
@@ -165,32 +181,25 @@ async def _read_order_request(request: web.Request) -> tuple[dict, bytes | None]
                 except (ValueError, UnicodeDecodeError):
                     raise ValidationError("Анкета пришла в неверном виде. Обновите приложение и попробуйте ещё раз.")
             elif part.name == "photo":
-                chunks, size = [], 0
-                while True:
-                    chunk = await part.read_chunk(64 * 1024)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > MAX_PHOTO_BYTES:
-                        raise ValidationError("Фото слишком большое. Выберите снимок поменьше (до 8 МБ).", field="photo")
-                    chunks.append(chunk)
-                photo = b"".join(chunks) or None
+                photo = await _read_photo_part(part, "Фото")
+            elif part.name == "person_photo":
+                parent = await _read_photo_part(part, "Фото близкого человека")
         if payload is None:
             raise ValidationError("В запросе нет анкеты.")
-        return payload, photo
+        return payload, photo, parent
     try:
         body = await request.read()
         if len(body) > MAX_PROFILE_BYTES:
             raise ValidationError("Анкета слишком большая.")
-        return json.loads(body.decode("utf-8")), None
+        return json.loads(body.decode("utf-8")), None, None
     except (ValueError, UnicodeDecodeError):
         raise ValidationError("Анкета пришла в неверном виде. Обновите приложение и попробуйте ещё раз.")
 
 
 async def create_order(request: web.Request) -> web.Response:
     service: OrderService = request.app[SERVICE_KEY]
-    payload, photo = await _read_order_request(request)
-    order_id = await service.create_order(request[USER_KEY], payload, photo)
+    payload, photo, parent = await _read_order_request(request)
+    order_id = await service.create_order(request[USER_KEY], payload, photo, parent)
     status = service.db.get_order(order_id)["status"]
     return json_response({"order_id": order_id, "status": status}, 201)
 

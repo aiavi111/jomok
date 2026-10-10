@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 ORDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,32}$")
 IMAGE_NAME_RE = re.compile(r"^(cover|" + "|".join(PAGE_IMAGE_NAMES) + r")$")   # cover, p1..pN
 DAY = 24 * 60 * 60
+PERSON_FILE = "person.jpg"      # фото близкого человека в папке заказа: живёт и удаляется вместе с photo.jpg
 UNPAID_KEEP_DAYS = 3             # неоплаченный заказ без чека через столько дней отменяется сам
 QR_TOKEN_ID = "payment-qr"
 DEFAULT_REJECT = "Платёж не найден. Проверьте сумму и отправьте чек ещё раз."
@@ -280,7 +281,7 @@ class OrderService:
             raise BusyError("Сейчас очень много заказов. Попробуйте через несколько минут.")
 
     # ------------------------------------------------------------------ создание заказа
-    async def create_order(self, user: TgUser, payload: dict, photo_raw: bytes | None) -> str:
+    async def create_order(self, user: TgUser, payload: dict, photo_raw: bytes | None, parent_raw: bytes | None = None) -> str:
         # закрытый бот: книгу создаёт только тот, у кого есть книги на счёте (владелец всегда может, книги не тратит)
         use_credit = self.closed() and not self.is_admin(user.id)
         if use_credit and self.db.get_credits(user.id) <= 0:
@@ -288,14 +289,16 @@ class OrderService:
         if not isinstance(payload, dict):
             raise ValidationError("Анкета пришла в неверном виде. Обновите приложение и попробуйте ещё раз.")
         has_photo = photo_raw is not None
-        if has_photo:
+        has_parent = parent_raw is not None
+        if has_photo or has_parent:
             if not payload.get("photo_consent") in (True, "true", 1, "1"):
                 raise ValidationError("Чтобы использовать фото, нужно отметить согласие родителя на обработку фото.",
                                       field="photo_consent")
             if not self.photo_supported():
                 raise ValidationError("Сейчас фото не принимается. Создайте книгу без фото.", field="photo")
-        profile = Profile.from_payload(payload, has_photo=has_photo)
+        profile = Profile.from_payload(payload, has_photo=has_photo, has_person_photo=has_parent)
         photo = prepare_photo(photo_raw) if has_photo else None
+        parent = self._prepare_person_photo(parent_raw) if has_parent else None
 
         check = await self.payment.authorize(user.id)
         if not check.ok:
@@ -307,6 +310,8 @@ class OrderService:
         odir.mkdir(parents=True, exist_ok=True)
         if photo:
             (odir / "photo.jpg").write_bytes(photo)
+        if parent:
+            (odir / PERSON_FILE).write_bytes(parent)
         needs_payment = self.desk.required() and not check.paid
         created = self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False),
                                        paid=check.paid, status="awaiting_payment" if needs_payment else "queued",
@@ -321,6 +326,14 @@ class OrderService:
                  order_id, profile.age, profile.language, profile.place, profile.value, has_photo, needs_payment)
         return order_id
 
+    @staticmethod
+    def _prepare_person_photo(raw: bytes) -> bytes:
+        """Фото близкого человека проходит ту же проверку и очистку, что и фото ребёнка; ошибка относится к своему полю."""
+        try:
+            return prepare_photo(raw)
+        except ValidationError as e:
+            raise ValidationError("Фото близкого человека: " + e.message[0].lower() + e.message[1:], field="person_photo")
+
     def _new_order_text(self, order_id: str, user: TgUser, profile: Profile, has_photo: bool, use_credit: bool,
                         needs_payment: bool) -> str:
         """Карточка нового заказа для владельца: кто заказал и что (без лишних данных ребёнка)."""
@@ -333,7 +346,7 @@ class OrderService:
                  f"Герой: {profile.name}, {profile.age} {ru_plural(profile.age, 'год', 'года', 'лет')}, {gender}",
                  f"Тема: {profile.topic_label}" + (f" · мир: {profile.world_label}" if profile.world_label else ""),
                  f"Стиль: {profile.style_label} · язык: {'кыргызский' if profile.language == 'ky' else 'русский'}"
-                 f" · фото: {'есть' if has_photo else 'нет'}" + (" · исламский режим" if profile.islamic else "")]
+                 f" · фото: {'есть' if has_photo else 'нет'}" + f" · фото близкого человека: {('есть, ' + profile.person_ru) if profile.has_person_photo else 'нет'}" + (" · исламский режим" if profile.islamic else "")]
         if needs_payment:
             lines.append("Ждёт оплаты и подтверждения чека")
         elif use_credit:
@@ -482,6 +495,8 @@ class OrderService:
         odir = self.order_dir(order_id)
         photo_path = odir / "photo.jpg"
         photo = photo_path.read_bytes() if photo_path.exists() else None
+        parent_path = odir / PERSON_FILE
+        parent = parent_path.read_bytes() if parent_path.exists() else None
 
         async def on_status(status: str) -> None:
             self.db.update_order(order_id, status=status)
@@ -492,7 +507,7 @@ class OrderService:
         try:
             async with self.gen_sem:
                 result = await build_book(
-                    profile, self.text, self.image, odir, photo=photo, image_sem=self.image_sem,
+                    profile, self.text, self.image, odir, photo=photo, person_photo=parent, image_sem=self.image_sem,
                     mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
                     on_status=on_status, on_story=on_story,
                 )
@@ -517,6 +532,7 @@ class OrderService:
             await self.notifier.notify_admin(f"Заказ {order_id}: непредвиденная ошибка {type(e).__name__}")
         finally:
             photo_path.unlink(missing_ok=True)      # фото больше не нужно — не храним ни дня
+            parent_path.unlink(missing_ok=True)
 
     async def _after_done(self, order_id: str, user_id: int, result: BookResult) -> None:
         if result.failed_pages:
@@ -701,13 +717,14 @@ class OrderService:
         cutoff = time.time() - PHOTO_PURGE_AFTER
         purged = 0
         for path in self.orders_dir.iterdir():
-            photo = path / "photo.jpg"
-            try:
-                if path.is_dir() and photo.stat().st_mtime < cutoff:
-                    photo.unlink()
-                    purged += 1
-            except OSError:          # нет файла (его уже убрала генерация) или папку удалили в этот момент
-                continue
+            for name in ("photo.jpg", PERSON_FILE):
+                photo = path / name
+                try:
+                    if path.is_dir() and photo.stat().st_mtime < cutoff:
+                        photo.unlink()
+                        purged += 1
+                except OSError:          # нет файла (его уже убрала генерация) или папку удалили в этот момент
+                    continue
         if purged:
             log.info("Удалены фото старше суток: %s", purged)
         return purged

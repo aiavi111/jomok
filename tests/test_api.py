@@ -359,7 +359,7 @@ async def post_with_photo(client, payload, photo, user_id=42):
     return await client.post("/api/orders", data=form, headers=tma(user_id))
 
 
-async def test_photo_requires_parent_consent(env):
+async def test_photo_requires_person_consent(env):
     resp = await post_with_photo(env.client, SAMPLE, jpeg())
     data = await resp.json()
     assert resp.status == 400 and data["field"] == "photo_consent" and "согласие" in data["error"]
@@ -376,7 +376,7 @@ async def test_photo_reaches_only_reference_capable_provider_and_is_deleted_afte
         cover = next(c for c in image.calls if c["label"] == "Обложка")
         assert cover["refs"] and cover["refs"][0][:2] == b"\xff\xd8"           # JPEG без метаданных
         assert not (e.service.order_dir(order_id) / "photo.jpg").exists()      # удалено сразу после генерации
-        assert "photo" not in e.db.get_order(order_id)["profile_json"].replace("has_photo", "")
+        assert "photo" not in e.db.get_order(order_id)["profile_json"].replace("has_person_photo", "").replace("has_photo", "")
     finally:
         await e.service.shutdown(); await e.client.close(); e.db.close()
 
