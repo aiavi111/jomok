@@ -143,7 +143,7 @@ class OrderService:
 
     # ------------------------------------------------------------------ доступ по личным ссылкам
     def is_admin(self, user_id: int) -> bool:
-        return self.settings.admin_chat_id is not None and user_id == self.settings.admin_chat_id
+        return self.settings.is_admin_id(user_id)
 
     def closed(self) -> bool:
         """Закрытый режим включён, пока владелец явно не выключил его в админке."""

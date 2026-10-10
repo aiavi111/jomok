@@ -167,7 +167,7 @@ def build_router() -> Router:
 
     @router.message(Command("admin"), private)
     async def on_admin(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
-        if runtime.settings.admin_chat_id is None or message.chat.id != runtime.settings.admin_chat_id:
+        if not runtime.settings.is_admin_id(_user_id(message)):
             await message.answer("Эта команда только для владельца бота.")
             return
         if not webapp_ready(webapp_url):
@@ -180,8 +180,7 @@ def build_router() -> Router:
 
     @router.callback_query(F.data.startswith("pay:"))
     async def on_payment_button(call: CallbackQuery, runtime: "BotRuntime") -> None:
-        admin = runtime.settings.admin_chat_id
-        if admin is None or call.from_user.id != admin:
+        if not runtime.settings.is_admin_id(call.from_user.id):
             await call.answer("Это действие только для владельца.", show_alert=True)
             return
         service = runtime.service
@@ -360,12 +359,12 @@ class BotRuntime:
         await self.bot.set_my_description(description=DESCRIPTION)
         await self.bot.set_my_short_description(short_description=SHORT_DESCRIPTION)
         await self.bot.set_my_commands(PUBLIC_COMMANDS, scope=BotCommandScopeDefault())
-        admin = self.settings.admin_chat_id
-        if admin is not None:           # команда /id видна только владельцу
+        admins = [x for x in (self.settings.admin_chat_id, *self.settings.extra_admin_ids) if x is not None]
+        for admin in admins:           # команда /admin видна только администраторам
             try:
                 await self.bot.set_my_commands(PUBLIC_COMMANDS + ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=admin))
             except TelegramAPIError as e:
-                log.warning("Не удалось добавить команды для владельца: %s", e)
+                log.warning("Не удалось добавить команды администратору: %s", e)
 
     async def run(self) -> None:
         try:

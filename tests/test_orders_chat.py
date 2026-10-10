@@ -105,3 +105,27 @@ def test_orders_chat_id_setting(monkeypatch, tmp_path):
     monkeypatch.setenv("ORDERS_CHAT_ID", "abc")
     with pytest.raises(ConfigError, match="ORDERS_CHAT_ID"):
         Settings.from_env(env_file=None)
+
+
+def test_extra_admins_get_the_same_rights_as_the_owner(monkeypatch):
+    monkeypatch.setenv("ADMIN_CHAT_ID", "111")
+    monkeypatch.setenv("ADMIN_EXTRA_IDS", "222, 333;444")
+    s = Settings.from_env(env_file=None)
+    assert s.extra_admin_ids == (222, 333, 444)
+    assert all(s.is_admin_id(x) for x in (111, 222, 333, 444)) and not s.is_admin_id(555)
+    monkeypatch.setenv("ADMIN_EXTRA_IDS", "")
+    assert Settings.from_env(env_file=None).extra_admin_ids == ()
+    monkeypatch.setenv("ADMIN_EXTRA_IDS", "abc")
+    with pytest.raises(ConfigError, match="ADMIN_EXTRA_IDS"):
+        Settings.from_env(env_file=None)
+
+
+async def test_extra_admin_can_open_the_admin_api(tmp_path):
+    env = await build_env(tmp_path, extra_admin_ids=(777,))
+    try:
+        resp = await env.client.get("/api/admin/invites", headers=tma(777))
+        assert resp.status == 200
+        resp = await env.client.get("/api/admin/invites", headers=tma(778))
+        assert resp.status == 403
+    finally:
+        await env.service.shutdown(); await env.client.close(); env.db.close()

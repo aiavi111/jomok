@@ -101,7 +101,7 @@ async def health(request: web.Request) -> web.Response:
 
 
 def _is_admin(settings: Settings, user: TgUser) -> bool:
-    return settings.admin_chat_id is not None and user.id == settings.admin_chat_id
+    return settings.is_admin_id(user.id)
 
 
 async def _read_json_body(request: web.Request, what: str) -> dict | None:

@@ -68,6 +68,7 @@ class Settings:
     telegram_bot_token: str = ""
     webapp_url: str = ""
     admin_chat_id: int | None = None
+    extra_admin_ids: tuple[int, ...] = ()   # другие администраторы (ADMIN_EXTRA_IDS): те же права, что у владельца; уведомления идут в ADMIN_CHAT_ID и чат заказов
     orders_chat_id: int | None = None   # куда приходят карточки заказов (новый, готов); пусто — в чат владельца ADMIN_CHAT_ID
 
     text_provider: str = "mock"
@@ -103,6 +104,10 @@ class Settings:
     price_text: str = "590 сом"          # цена PDF-книги; владелец меняет её в админке
     text_overlay_mode: str = "auto"      # оформление текста на картинке: auto | fade | plate | plain (см. app/overlay.py)
 
+    def is_admin_id(self, user_id: int) -> bool:
+        """Владелец (ADMIN_CHAT_ID) или дополнительный администратор (ADMIN_EXTRA_IDS)."""
+        return (self.admin_chat_id is not None and user_id == self.admin_chat_id) or user_id in self.extra_admin_ids
+
     @classmethod
     def from_env(cls, env_file: Path | None = ROOT / ".env") -> "Settings":
         if env_file is not None and Path(env_file).exists():
@@ -119,6 +124,15 @@ class Settings:
                     "В .env строка ADMIN_CHAT_ID должна быть числом. "
                     "Отправьте боту команду /id — он ответит нужным числом."
                 )
+
+        extra_ids: list[int] = []
+        for part in _s("ADMIN_EXTRA_IDS").replace(";", ",").replace(" ", ",").split(","):
+            if part.strip():
+                try:
+                    extra_ids.append(int(part))
+                except ValueError:
+                    raise ConfigError("В .env строка ADMIN_EXTRA_IDS должна содержать числа через запятую (id людей, "
+                                      "их показывает команда /id в личном чате с ботом).")
 
         orders_raw = _s("ORDERS_CHAT_ID")
         orders_id: int | None = None
@@ -140,6 +154,7 @@ class Settings:
             webapp_url=_webapp_url(),
             admin_chat_id=admin_id,
             orders_chat_id=orders_id,
+            extra_admin_ids=tuple(extra_ids),
             text_provider=_s("TEXT_PROVIDER", "mock").lower() or "mock",
             image_provider=_s("IMAGE_PROVIDER", "mock").lower() or "mock",
             openai_api_key=_s("OPENAI_API_KEY"),
