@@ -53,6 +53,23 @@ COVER_TITLE_CLAUSE = (
     "letter exactly as given and in this order, no extra, missing, doubled, swapped, mirrored or invented letters "
     "(Cyrillic, including ү ө ң when present). No other text on the cover: no subtitle, name, signature or logo."
 )
+NO_OTHER_PEOPLE = "No other people or children, only the listed characters."
+_PEOPLE_STEMS = ("принц", "корол", "рыцар", "пират", "космонавт", "астронавт", "врач", "доктор", "учител", "воспитател", "повар", "фермер", "рыбак",
+                 "волшебник", "ведьм", "подруг", "друзь", "ребят", "дет", "сверстник", "одноклассник", "брат", "сестр", "мам", "пап", "бабуш", "дедуш",
+                 "родител", "семь")
+
+
+def wants_people(profile: Profile) -> bool:
+    """Родители просили людей (фото близкого человека или герои-люди в пожелании): тогда посторонних не запрещаем."""
+    low = f" {profile.request} ".lower()
+    return bool(getattr(profile, "has_person_photo", False)) or any(s in low for s in _PEOPLE_STEMS)
+
+
+def no_extra_people(profile: Profile) -> str:
+    """Запрет случайных людей в кадре: модель сама дорисовывает «девочку-помощницу», которой в книге нет."""
+    return "" if wants_people(profile) else NO_OTHER_PEOPLE
+
+
 COVER_ONLY = "Show only characters from this story: the hero, the friends and anyone in the scene, no random extra people."
 COVER_CALM = ("The background is beautiful but calm and not overloaded: soft depth of field, one clear focal point, "
               "nothing competing with the hero and the title.")
@@ -348,4 +365,5 @@ def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: b
         hero = scrub_name(story.hero_visual, profile.name, profile.gender)
     parent = person_photo_clause(profile) if person_ref and person_in_scene(story, raw_scene) else ""
     return _finish([scene, cast_clause(story, profile, raw_scene, person_ref=person_ref), hero], story.style_note,
-                   style_block(profile), lead=page_layout_clause(index, has_refs=has_refs), keep=(parent, _modest(profile)))
+                   style_block(profile), lead=page_layout_clause(index, has_refs=has_refs),
+                   keep=(parent, _modest(profile), no_extra_people(profile)))

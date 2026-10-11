@@ -404,3 +404,14 @@ def test_sense_fixes_replace_only_pages_that_still_fit_the_rules():
     fixed, applied = apply_sense_fixes(profile, story, raw)
     assert applied == [2] and fixed.pages[1].text == good and fixed.pages[2].text == story.pages[2].text
     assert apply_sense_fixes(profile, story, '{"fixes": "нет"}')[1] == []
+
+
+def test_pages_forbid_random_extra_people_unless_the_parents_asked_for_people():
+    from app import prompts
+    plain = Profile.from_payload({**SAMPLE, "request": "Малыш помогает зверятам в лесу"})
+    story = assemble(plain, _football({"request": "Малыш помогает зверятам в лесу"})[1])
+    assert prompts.NO_OTHER_PEOPLE in prompts.build_page_prompt(story, plain, 4, has_refs=True, photo_ref=True)
+    ball = Profile.from_payload({**SAMPLE, "request": "Ясмина на балу среди принцесс"})
+    assert prompts.NO_OTHER_PEOPLE not in prompts.build_page_prompt(story, ball, 4, has_refs=True, photo_ref=True)
+    with_photo = Profile.from_payload({**SAMPLE, "request": "Лес"}, has_person_photo=True) if "has_person_photo" in Profile.from_payload.__code__.co_varnames else plain
+    assert prompts.wants_people(Profile.from_payload({**SAMPLE, "request": "Поход с братом"}))
