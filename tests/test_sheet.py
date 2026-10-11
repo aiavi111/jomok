@@ -391,3 +391,16 @@ def test_cover_may_show_story_characters_but_forbids_random_extra_people():
         cover = prompts.build_cover_prompt(story, profile, photo_ref=True, title_in_image=with_title)
         assert prompts.COVER_ONLY in cover and "characters from this story" in cover and len(cover) <= prompts.MAX_PROMPT
         assert "ignore any characters" not in cover
+
+
+def test_sense_fixes_replace_only_pages_that_still_fit_the_rules():
+    import json as _json
+    from app.simple_writer import apply_sense_fixes
+    profile, data = _football({"request": "Артём играет на стадионе"})
+    story = assemble(profile, data)
+    good = "Артём шёл по тропинке с другом. Они искали мяч и смеялись. — Вот он! — крикнул Артём. Друг радостно кивнул."
+    too_long = "очень длинный текст " * 60
+    raw = _json.dumps({"fixes": [{"page": 2, "text": good}, {"page": 3, "text": too_long}, {"page": 99, "text": good}, {"page": 4}]}, ensure_ascii=False)
+    fixed, applied = apply_sense_fixes(profile, story, raw)
+    assert applied == [2] and fixed.pages[1].text == good and fixed.pages[2].text == story.pages[2].text
+    assert apply_sense_fixes(profile, story, '{"fixes": "нет"}')[1] == []

@@ -70,9 +70,25 @@ class TextProvider(ABC):
 
         story = await self._ask(sw.system_prompt(profile), sw.user_prompt(profile, framework), check,
                                 what="текст книги", hint=TEXT_HINT, salvage=salvage)
+        if self.polish and profile.language == "ru":
+            story = await self._sense_pass(profile, story)
         if profile.language == "ky" and self.polish:
             story = await self._proofread_ky(profile, None, story)
         return story
+
+    async def _sense_pass(self, profile: Profile, story: Story) -> Story:
+        """Один недорогой запрос: редактор ищет фразы без смысла («удочки на велосипедах») и правит только их. Сбой оставляет текст как есть."""
+        from .. import simple_writer as sw
+        try:
+            system, user = sw.sense_prompts(profile, story)
+            raw = await self._complete(system, [("user", user)])
+            fixed, pages = sw.apply_sense_fixes(profile, story, raw)
+        except (StoryValidationError, ProviderError, KeyError, TypeError, AttributeError, ValueError) as e:
+            log.warning("Проверка на бессмыслицу не удалась, оставляю текст: %s", e)
+            return story
+        if pages:
+            log.info("Редактор исправил бессмысленные места на страницах %s", pages)
+        return fixed
 
     async def _ask(self, system: str, user: str, check: Callable[[str], object], *, what: str, hint: str,
                    model: str | None = None, salvage: Callable[[], object | None] | None = None):
