@@ -191,6 +191,17 @@ def _team_looks(story: Story, profile: Profile) -> list[str]:
 
 PERSON_PHOTO_CLAUSE = ("The adult/person in the scene looks exactly like the person in the last reference photo "
                        "(same face, hair, skin tone).")
+_MALE_ROLES = {"father", "grandfather", "brother", "uncle"}
+_FEMALE_ROLES = {"mother", "grandmother", "sister", "aunt"}
+
+
+def person_photo_clause(profile: Profile) -> str:
+    """Человек по фото: тот же человек на всех кадрах, того же пола и возраста, что на фото (брат остаётся мальчиком, а не девочкой)."""
+    role = getattr(profile, "person_role", "") or ""
+    sex = " He is male." if role in _MALE_ROLES else (" She is female." if role in _FEMALE_ROLES else "")
+    return (PERSON_PHOTO_CLAUSE + sex + " Same age and same person in every scene where they appear, never replaced by anyone else.")
+
+
 PERSON_SHOWN = re.compile(r"\b(?:person|parent|parents|mother|mom|mum|mommy|mama|father|dad|daddy|papa|grandmother|grandma|granny|grandfather|"
                           r"grandpa|granddad|grandad|brother|sister|sibling|aunt|auntie|uncle|relative|family)\b", re.I)
 
@@ -256,7 +267,7 @@ def build_cover_prompt(story: Story, profile: Profile, *, photo_ref: bool, title
     world = cut_words(scrub_name(story.pages[0].scene, profile.name, profile.gender), COVER_WORLD_MAX)
     hero = scrub_name(story.hero_visual, profile.name, profile.gender)
     friends = world_clause(story, profile, limit=COVER_FRIENDS_MAX, cover=True)
-    parent = PERSON_PHOTO_CLAUSE if person_ref and person_in_scene(story, story.pages[0].scene) else ""
+    parent = person_photo_clause(profile) if person_ref and person_in_scene(story, story.pages[0].scene) else ""
     helper = cover_helper_clause(story, profile)
     if title_in_image:
         framing = "The main hero, smiling warmly and shown from the knees up, fills the lower centre of the cover."
@@ -335,6 +346,6 @@ def build_page_prompt(story: Story, profile: Profile, index: int, *, has_refs: b
         hero = scrub_name(story.hero_visual, profile.name, profile.gender) + " The other characters look exactly like in the reference image."
     else:
         hero = scrub_name(story.hero_visual, profile.name, profile.gender)
-    parent = PERSON_PHOTO_CLAUSE if person_ref and person_in_scene(story, raw_scene) else ""
+    parent = person_photo_clause(profile) if person_ref and person_in_scene(story, raw_scene) else ""
     return _finish([scene, cast_clause(story, profile, raw_scene, person_ref=person_ref), hero], story.style_note,
                    style_block(profile), lead=page_layout_clause(index, has_refs=has_refs), keep=(parent, _modest(profile)))
