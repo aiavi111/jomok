@@ -448,3 +448,8 @@ def test_with_a_person_photo_everyone_else_is_forbidden_but_requested_roles_are_
     with_photo = Profile.from_payload({**SAMPLE, "request": "Поход с братом"}, has_person_photo=True)
     assert "except the hero and the person" in prompts.no_extra_people(with_photo, True) and "last reference" not in prompts.no_extra_people(with_photo)
     assert prompts.no_extra_people(Profile.from_payload({**SAMPLE, "request": "Бал принцесс"})) == ""
+
+
+def test_writer_is_told_to_keep_one_grammatical_gender_for_every_helper():
+    from app.simple_writer import system_prompt
+    assert "ОДНИМ на всю книгу" in system_prompt(Profile.from_payload(SAMPLE))
