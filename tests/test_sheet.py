@@ -381,3 +381,13 @@ def test_a_book_without_files_is_skipped_by_the_phone_pdf_backfill(tmp_path):
     from app.service import OrderService  # noqa: F401
     svc = make_service(tmp_path)
     assert svc.ensure_mobile_pdf("does-not-exist") is None
+
+
+def test_cover_takes_only_place_and_light_from_the_first_scene_and_forbids_extra_characters():
+    from app import prompts
+    profile, data = _football({"request": "Артём играет на стадионе"})
+    data["pages"][0]["scene"] = "A wide stadium at dawn: the hero meets the helper and a small fox with a ball waves nearby."
+    story = assemble(profile, data)
+    for with_title in (True, False):
+        cover = prompts.build_cover_prompt(story, profile, photo_ref=True, title_in_image=with_title)
+        assert prompts.COVER_ONLY in cover and "ignore any characters" in cover and len(cover) <= prompts.MAX_PROMPT

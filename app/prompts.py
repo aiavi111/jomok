@@ -53,6 +53,7 @@ COVER_TITLE_CLAUSE = (
     "letter exactly as given and in this order, no extra, missing, doubled, swapped, mirrored or invented letters "
     "(Cyrillic, including ү ө ң when present). No other text on the cover: no subtitle, name, signature or logo."
 )
+COVER_ONLY = "Only the hero and the friends described here are on the cover: no other children, people or characters."
 COVER_CALM = ("The background is beautiful but calm and not overloaded: soft depth of field, one clear focal point, "
               "nothing competing with the hero and the title.")
 
@@ -259,13 +260,13 @@ def build_cover_prompt(story: Story, profile: Profile, *, photo_ref: bool, title
     helper = cover_helper_clause(story, profile)
     if title_in_image:
         framing = "The main hero, smiling warmly and shown from the knees up, fills the lower centre of the cover."
-        head = [framing, helper, friends, f"The story's world is softly behind: {world}", hero]
-        keep = (photo_instruction(profile) if photo_ref else "", parent, _modest(profile), COVER_CALM)
+        head = [framing, helper, friends, f"Softly behind, the place and light only (ignore any characters mentioned here): {world}", hero]
+        keep = (photo_instruction(profile) if photo_ref else "", parent, _modest(profile), COVER_ONLY, COVER_CALM)
         return _finish(head, story.style_note, style_block(profile, cover=True),
                        lead=COVER_TITLE_CLAUSE.format(title=story.title.strip()), keep=keep)
     framing = "Book cover illustration: a close-up portrait of the main hero smiling warmly."
-    return _finish([framing, helper, friends, f"The story's world is behind: {world}", hero], story.style_note,
-                   style_block(profile), keep=(photo_instruction(profile) if photo_ref else "", parent, _modest(profile)))
+    return _finish([framing, helper, friends, f"Behind, the place and light only (ignore any characters mentioned here): {world}", hero], story.style_note,
+                   style_block(profile), keep=(photo_instruction(profile) if photo_ref else "", parent, _modest(profile), COVER_ONLY))
 
 
 SHEET_LEAD = ("Character model sheet on a plain, seamless pure-white studio background, like a catalogue cut-out: nothing "
