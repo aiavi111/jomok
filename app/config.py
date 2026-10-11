@@ -127,7 +127,7 @@ class Settings:
                 )
 
         extra_ids: list[int] = []
-        for part in _s("ADMIN_EXTRA_IDS").replace(";", ",").replace(" ", ",").split(","):
+        for part in _s("ADMIN_EXTRA_IDS").replace('"', "").replace("'", "").replace(";", ",").replace(" ", ",").split(","):
             if part.strip():
                 try:
                     extra_ids.append(int(part))

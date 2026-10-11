@@ -113,6 +113,8 @@ def test_extra_admins_get_the_same_rights_as_the_owner(monkeypatch):
     s = Settings.from_env(env_file=None)
     assert s.extra_admin_ids == (222, 333, 444)
     assert all(s.is_admin_id(x) for x in (111, 222, 333, 444)) and not s.is_admin_id(555)
+    monkeypatch.setenv("ADMIN_EXTRA_IDS", '"5692263314 , 1334061574"')                    # как вставили в Railway: кавычки и пробелы вокруг запятой
+    assert Settings.from_env(env_file=None).extra_admin_ids == (5692263314, 1334061574)
     monkeypatch.setenv("ADMIN_EXTRA_IDS", "")
     assert Settings.from_env(env_file=None).extra_admin_ids == ()
     monkeypatch.setenv("ADMIN_EXTRA_IDS", "abc")
