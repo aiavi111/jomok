@@ -78,6 +78,26 @@ async def _noop(*_a, **_k) -> None:
     return None
 
 
+_SOFTEN = (
+    (r"\b(?:grabs?|grabbed|snatch\w*|seiz\w*|kidnap\w*|abduct\w*)\b", "meets"),
+    (r"\b(?:carr(?:y|ies|ied)|drag\w*|pull(?:s|ed)?) (?:\w+ )?away\b", "swims off with"),
+    (r"\b(?:attack\w*|fight\w*|bite\w*|bit)\b", "surprises"),
+    (r"\b(?:scream\w*|shriek\w*|roar\w*)\b", "calls out"),
+    (r"\b(?:scary|frightening|terrifying|menacing|fierce|angry)\b", "curious"),
+    (r"\bmonsters?\b", "big friendly sea creatures"),
+    (r"\b(?:captive|trapped|imprisoned|held prisoner)\b", "waiting"),
+    (r"\bblood\w*|\bwound\w*|\bdanger\w*", "adventure"),
+)
+
+
+def soften_scene(scene: str) -> str:
+    """Мягкие слова вместо «схватили», «унесли», «монстры»: генератор картинок отказывается рисовать детей в опасности."""
+    out = scene
+    for pattern, repl in _SOFTEN:
+        out = re.sub(pattern, repl, out, flags=re.I)
+    return out
+
+
 async def _draw_with_retries(provider: ImageProvider, prompt: str, refs: list[bytes] | None, label: str,
                              sem: asyncio.Semaphore, size: tuple[int, int] = COVER_SIZE,
                              quality: int = COVER_QUALITY) -> bytes:
@@ -218,6 +238,32 @@ async def build_book(
         prompt = build_page_prompt(story, profile, i, has_refs=bool(page_refs), person_ref=with_parent, photo_ref=use_photo)
         await make(f"p{i}", prompt, refs, f"Страница {i}", story.pages[i - 1].scene)
 
+    async def retry_softened(i: int) -> None:
+        """Страница не нарисовалась (часто из-за «пугающей» сцены: «схватили», «унесли»): ещё одна попытка с мягкими словами."""
+        name = f"p{i}"
+        if name not in failed:
+            return
+        soft_scene = soften_scene(story.pages[i - 1].scene)
+        if soft_scene == story.pages[i - 1].scene:
+            return
+        softened = story.pages[i - 1].__class__(text=story.pages[i - 1].text, scene=soft_scene)
+        trial = Story(**{**{f: getattr(story, f) for f in story.__dataclass_fields__}, "pages": tuple(
+            softened if k == i - 1 else p for k, p in enumerate(story.pages))})
+        with_parent = use_parent and person_in_scene(story, soft_scene)
+        refs = ((page_refs or []) + [person_photo]) if with_parent else page_refs
+        prompt = build_page_prompt(trial, profile, i, has_refs=bool(page_refs), person_ref=with_parent, photo_ref=use_photo)
+        try:
+            data = await _draw_with_retries(image, prompt, refs, f"Страница {i} (мягко)", sem, PAGE_SIZE, PAGE_QUALITY)
+        except ProviderError as e:
+            if e.fatal:
+                raise
+            log.warning("Страница %s не нарисовалась и в мягком виде: %s", i, e.message)
+            return
+        (out_dir / f"{name}.jpg").write_bytes(data)
+        failed.remove(name)
+        notes[:] = [n for n in notes if not n.startswith(f"Страница {i}:")]
+        log.info("Страница %s нарисована со второй попытки (мягкие слова)", i)
+
     tasks = [asyncio.create_task(page(i)) for i in range(1, PAGES + 1)]
     try:
         await asyncio.gather(*tasks)
@@ -226,6 +272,9 @@ async def build_book(
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
+
+    for i in range(1, PAGES + 1):                  # ненарисованные страницы: ещё одна попытка с мягкими словами, пока не собран PDF
+        await retry_softened(i)
 
     # 3. PDF
     await on_status("assembling")

@@ -414,4 +414,37 @@ def test_pages_forbid_random_extra_people_unless_the_parents_asked_for_people():
     ball = Profile.from_payload({**SAMPLE, "request": "Ясмина на балу среди принцесс"})
     assert prompts.NO_OTHER_PEOPLE not in prompts.build_page_prompt(story, ball, 4, has_refs=True, photo_ref=True)
     with_photo = Profile.from_payload({**SAMPLE, "request": "Лес"}, has_person_photo=True) if "has_person_photo" in Profile.from_payload.__code__.co_varnames else plain
-    assert prompts.wants_people(Profile.from_payload({**SAMPLE, "request": "Поход с братом"}))
+    assert prompts.wants_people(Profile.from_payload({**SAMPLE, "request": "Малыш и подруги играют в куклы"}))      # герои-люди из пожелания
+    assert not prompts.wants_people(Profile.from_payload({**SAMPLE, "request": "Поход с братом"}))               # родные только по фото
+
+
+def test_soften_scene_replaces_scary_words_and_leaves_calm_scenes_alone():
+    from app.bookgen import soften_scene
+    scary = soften_scene("Two monsters grab the brother and carry him away; a scary danger")
+    assert "monster" not in scary.lower() and "grab" not in scary.lower() and "scary" not in scary.lower()
+    calm = "A boy rides a bicycle along a sunny beach with a turtle"
+    assert soften_scene(calm) == calm
+
+
+async def test_a_page_the_generator_refuses_is_redrawn_with_softer_words_instead_of_a_placeholder(tmp_path):
+    from app.story import validate_story
+
+    class Scary(MockTextProvider):
+        async def generate_story(self, p):
+            data = (await super().generate_story(p)).to_dict()
+            data["pages"][1]["scene"] = "Two monsters grab the brother and carry him away into the deep blue sea at noon."
+            return validate_story(data, p.language)
+
+    image = ScriptedImage(supports_reference=False,
+                          fail=lambda n, prompt, label: provider_error("отказ", no_retry=True) if "monsters grab" in prompt else None)
+    result = await build_book(Profile.from_payload(SAMPLE), Scary(), image, tmp_path / "order",
+                              image_sem=asyncio.Semaphore(3), mock=True)
+    assert result.failed_pages == []                                              # вторая попытка с мягкими словами удалась
+    assert any("мягко" in (c["label"] or "") for c in image.calls)
+
+
+def test_with_a_person_photo_everyone_else_is_forbidden_but_requested_roles_are_not():
+    from app import prompts
+    with_photo = Profile.from_payload({**SAMPLE, "request": "Поход с братом"}, has_person_photo=True)
+    assert "except the hero and the person" in prompts.no_extra_people(with_photo, True) and "last reference" not in prompts.no_extra_people(with_photo)
+    assert prompts.no_extra_people(Profile.from_payload({**SAMPLE, "request": "Бал принцесс"})) == ""
