@@ -913,7 +913,7 @@ async def test_notifier_sends_the_cards_with_buttons_to_the_right_chats():
     await notifier.notify_request("order0000001", "Заявка <b>с & знаками</b>")
     await notifier.notify_review("order0000001", "Книга готова")
     request, review = sent_messages(session)
-    assert request.chat_id == -100555 and review.chat_id == 777           # в группе заявки, проверка с PDF у владельца
+    assert request.chat_id == 777 and review.chat_id == 777               # заявки и проверка у проверяющего, в группе только отчёты
     assert request.text == "Заявка <b>с & знаками</b>" and request.parse_mode is None          # текст родителей показываем как есть
     assert [b.callback_data for b in request.reply_markup.inline_keyboard[0]] == ["req:ok:order0000001", "req:no:order0000001"]
     assert review.reply_markup.inline_keyboard[0][0].callback_data == "rev:ok:order0000001"
@@ -972,7 +972,8 @@ async def test_review_chat_id_gets_the_files_and_the_buttons(monkeypatch):
     pdf = Path(__file__)
     await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
     await notifier.notify_review("order0000001", "Книга готова")
-    assert [int(c.chat_id) for c in session.calls if isinstance(c, (SendDocument, SendMessage))] == [4242, 4242]
+    await notifier.notify_request("order0000001", "Заявка")
+    assert [int(c.chat_id) for c in session.calls if isinstance(c, (SendDocument, SendMessage))] == [4242, 4242, 4242]
     # у человека из REVIEW_CHAT_ID есть кнопки проверки, но не права администратора
     settings = Settings(admin_chat_id=777, review_chat_id=4242)
     assert settings.can_review_id(4242) and not settings.is_admin_id(4242)

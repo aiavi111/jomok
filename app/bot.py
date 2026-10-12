@@ -284,7 +284,7 @@ def build_router() -> Router:
     async def on_request_button(call: CallbackQuery, runtime: "BotRuntime") -> None:
         """«Принять и начать» / «Отклонить» под заявкой клиента. Только администраторы; повторное нажатие ничего не ломает."""
         service = runtime.service
-        if service is None or not service.is_admin(call.from_user.id):
+        if service is None or not service.can_review(call.from_user.id):
             await _answer(call, "Это действие только для владельца.", True)
             return
         parts = (call.data or "").split(":", 2)
@@ -441,8 +441,8 @@ class TelegramNotifier:
 
     @property
     def can_approve_requests(self) -> bool:
-        """Заявку можно показать человеку с кнопками, только если есть чат заказов (или чат владельца)."""
-        return self.orders_chat_id is not None
+        """Заявку можно показать человеку с кнопками, только если есть хоть один чат (проверяющего, владельца или заказов)."""
+        return bool(self._work_chats())
 
     @property
     def can_review_books(self) -> bool:
@@ -454,15 +454,18 @@ class TelegramNotifier:
         return [c for c in dict.fromkeys((self.review_chat_id, self.admin_chat_id, self.orders_chat_id)) if c is not None]
 
     async def notify_request(self, order_id: str, text: str) -> None:
-        """Заявка клиента в чат заказов (ORDERS_CHAT_ID, иначе владельцу) с кнопками «Принять и начать» / «Отклонить»."""
-        if self.orders_chat_id is None:
-            log.warning("Чат заказов не задан: заявка %s не отправлена, её видно только в базе", order_id)
+        """Заявка клиента проверяющему (REVIEW_CHAT_ID, иначе владельцу, иначе в чат заказов) с кнопками «Принять и начать» / «Отклонить»."""
+        chats = self._work_chats()
+        if not chats:
+            log.warning("Ни одного чата для заявок не задано: заявка %s не отправлена, её видно только в базе", order_id)
             return
-        try:
-            await self.bot.send_message(self.orders_chat_id, text[:4000], reply_markup=request_keyboard(order_id),
-                                        parse_mode=None)     # без разметки: текст родителей показываем как есть
-        except Exception as e:  # noqa: BLE001 — заявка уже в базе, напоминание пришлёт её снова
-            log.warning("Заявка %s не отправлена: %s", order_id, type(e).__name__)
+        for chat in chats:
+            try:
+                await self.bot.send_message(chat, text[:4000], reply_markup=request_keyboard(order_id),
+                                            parse_mode=None)     # без разметки: текст родителей показываем как есть
+                return
+            except Exception as e:  # noqa: BLE001 — заявка уже в базе, напоминание пришлёт её снова
+                log.warning("Заявка %s не отправлена в чат %s: %s", order_id, chat, type(e).__name__)
 
     async def notify_review(self, order_id: str, text: str) -> None:
         """Карточка готовой книги владельцу (рядом с двумя PDF) с кнопками проверки; не вышло — в чат заказов."""

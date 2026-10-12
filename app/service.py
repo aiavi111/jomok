@@ -389,6 +389,7 @@ class OrderService:
         if needs_approval:
             await self._request_card(order_id, self._new_order_text(order_id, user, profile, has_photo, use_credit, False,
                                                                     request_card=True))
+            await self._order_card(f"🆕 Заявка {order_id} ждёт решения. Её видит и принимает только проверяющая.")
             await self._tell_user(user.id, REQUEST_ACCEPTED_TEXT)
         else:
             if not needs_payment:
@@ -447,7 +448,7 @@ class OrderService:
             log.exception("Не удалось отправить карточку заказа")
 
     async def _request_card(self, order_id: str, text: str) -> None:
-        """Заявка с кнопками «Принять и начать» / «Отклонить» в чат заказов; сбой отправки заказ не ломает (напомнит напоминание)."""
+        """Заявка с кнопками «Принять и начать» / «Отклонить» проверяющему (REVIEW_CHAT_ID, иначе владельцу); сбой отправки заказ не ломает (напомнит напоминание)."""
         notify = getattr(self.notifier, "notify_request", None)
         try:
             if notify:
