@@ -208,7 +208,7 @@ HELPER_TYPES: tuple[HelperType, ...] = (
 # команда считается ОДНИМ помощником). Родитель может попросить команду и сам (request, favorites, cartoons): тогда состав
 # решает режиссёр по его просьбе, а имена остальных членов берутся из Seeds.team_names (выбрал код).
 WORLD_TEAM: dict[str, int] = {"ninja_animals": 4, "rescue_team": 4, "workshop_helpers": 3, "space_crew": 3,
-                              "mountain_friends": 3, "kingdom": 3, "builders": 3}
+                              "mountain_friends": 3, "princess": 3, "blue_tractor": 3}
 TEAM_MIN, TEAM_MAX = 2, 4          # сколько друзей в команде-помощнике
 TEAM_EXTRA_NAMES = 3               # сколько запасных имён для членов команды выбирает код (лидер называется helper.name)
 BRIEF_MAX_CHARS = 300              # длина одного image_brief (английский кадр для художника)
@@ -228,11 +228,12 @@ WORLD_HELPERS: dict[str, tuple[str, ...]] = {
     "rescue_team": ("owlet", "badger", "rescue_hare"),
     "workshop_helpers": ("tinker", "mouse"),
     "ninja_animals": ("fox", "frog", "hedgehog"),
-    "caped_hero": ("hamster", "pigeon"),
-    "kingdom": ("dragon", "kitten"),
+    "hero_agile": ("hamster", "pigeon"),
+    "princess": ("dragon", "kitten"),
+    "dragon_friend": ("dragon",),
     "dino_friend": ("dino", "baby_trike"),
     "space_crew": ("star_fox", "robot"),
-    "builders": ("excavator", "little_train"),
+    "blue_tractor": ("excavator", "little_train"),
     "mountain_friends": ("snow_leopard", "foal", "eagle_chick"),
 }
 
@@ -275,15 +276,34 @@ SETTINGS_BY_WORLD: dict[str, tuple[str, ...]] = {
                          "чердак с коробками и пыльными лучами света", "двор с гаражом и верстаком"),
     "ninja_animals": ("бамбуковая роща с каменными ступенями", "двор старой пагоды с яркими фонариками",
                       "горная тропа и мостик через водопад", "тренировочная поляна среди цветущих яблонь"),
-    "caped_hero": ("крыши игрушечного города на рассвете", "площадь города с часами и фонтаном",
+    "hero_agile": ("крыши игрушечного города на рассвете", "площадь города с часами и фонтаном",
                    "парк с высоким деревом и воздушным змеем", "мост над рекой и набережная"),
-    "kingdom": ("замок на зелёном холме с флажками на башнях", "сад у замка с розами и живым лабиринтом",
+    "princess": ("замок на зелёном холме с флажками на башнях", "сад у замка с розами и живым лабиринтом",
                 "большой зал с огромными окнами и длинным столом", "каменный мост у ворот замка над прудом с кувшинками"),
     "dino_friend": SETTINGS_BY_TOPIC["dinosaurs"],
     "space_crew": SETTINGS_BY_PLACE["space"],
-    "builders": ("большая стройка с горкой песка и башенным краном", "дорога, которую строят, с яркими конусами",
+    "blue_tractor": ("большая стройка с горкой песка и башенным краном", "дорога, которую строят, с яркими конусами",
                  "железнодорожный переезд и маленькая станция", "карьер с песком и пандусом"),
     "mountain_friends": SETTINGS_BY_PLACE["mountains"] + SETTINGS_BY_PLACE["yurt"][:2],
+    "football": ("залитое солнцем футбольное поле с яркими воротами", "раздевалка с разноцветными бутсами и мячами",
+                 "двор, где ребята играют в мяч после дождя", "трибуны стадиона с флажками и шарфами болельщиков"),
+    "dragon_friend": ("пещера на склоне с блестящими камешками", "холм над долиной, где дракончик учится летать",
+                      "лесная поляна с тёплым ручьём", "деревенская площадь, где все сначала боятся дракончика"),
+    "unicorns": ("радужный луг с цветами и облачками", "хрустальный ручей и мостик из лент", "сад звёздных цветов на холме"),
+    "race_cars": ("трасса с холмами и клетчатыми флажками", "мастерская-гараж с лампочками", "мост и поворот у озера"),
+    "mermaid": ("коралловый дворец и ракушечный сад", "подводная пещера со светящимися жемчужинами",
+                "затонувший кораблик, поросший водорослями"),
+    "hero_team": ("башня штаба на крыше города", "площадь города, где что-то пошло не так", "парк с высокими деревьями и мостом"),
+    "blocks": ("мир из разноцветных кубиков с кубическими деревьями", "стройка из кубиков у кубической реки",
+               "кубическая пещера с блестящими кубиками"),
+    "ice_kingdom": ("замок из голубого льда на снежной горе", "заснеженный лес с голубыми огоньками", "замёрзшее озеро и ледяной мост"),
+    "wizard_school": ("круглая башня школы волшебства с фонарями", "класс с парящими свечами и говорящей совой",
+                      "сад волшебных растений за школой"),
+    "animal_city": ("площадь города зверей с фонтаном", "улица с лавками, булочной и трамвайчиком", "городской парк с прудом"),
+    "long_braid": ("высокая каменная башня среди цветущего луга", "окно башни, откуда видно далёкий лес", "тропинка к ручью и мельнице"),
+    "star_singers": ("сцена на городской площади со звёздными огоньками", "студия с большими окнами и инструментами", "крыша дома, с которой слышно весь город"),
+    "fast_pals": ("беговая дорожка на цветущем лугу", "тропа вдоль реки с кочками и мостиками", "холм с финишной лентой"),
+    "jump_land": ("зелёные парящие платформы с золотыми монетками", "холмы с трубами и облачными трамплинами", "замок на облаке"),
 }
 
 
@@ -395,6 +415,77 @@ ARCHETYPES: tuple[Archetype, ...] = (
               "a chunky mint-green excavator with a big friendly bucket and round headlight eyes on the roof, a small "
               "coral-red toy train with a polka-dot chimney, a tall slim yellow crane with a little flag",
               "лиц на лобовом стекле, синего паровоза с номером, жёлтой каски и оранжевого комбинезона известного строителя"),
+    Archetype("blocks", "Кубический мир",
+              "мир, где всё построено из кубиков: герой строит дома и мосты, а добрые кубические существа помогают и подсказывают",
+              "a world made of chunky pastel cubes, a friendly square-headed builder creature, a boxy round-eyed sheep and a "
+              "cube-shaped garden with a tiny cube house",
+              "известных пиксельных игр, зелёных взрывающихся существ и их нарядов"),
+    Archetype("ice", "Ледяное королевство",
+              "заснеженное королевство: добрая ледяная повелительница-существо, снежный олень и смешной снеговичок; тепло дружбы "
+              "растапливает холод",
+              "a gentle glittering ice-spirit queen with a long crystal cape and snowflake crown, a fluffy white reindeer with "
+              "silver antlers and a round little snowman with a carrot scarf, in a castle of pale-blue ice",
+              "нарядов, причёсок и цветов известных ледяных принцесс и их снеговика", True),
+    Archetype("climber", "Ловкий герой",
+              "ловкий герой в маске, который лазает по стенам и крышам и спасает город; сам ребёнок-герой, а рядом напарник",
+              "a child hero in a coral-and-teal mask and suit with a grappling rope, climbing a city tower, with a small "
+              "pigeon sidekick",
+              "красно-синих костюмов с паутиной, пауков и всех известных масок"),
+    Archetype("singers", "Поющие защитницы",
+              "команда девочек-героинь со звёздными микрофонами, которые защищают музыку и возвращают городу песни",
+              "three cheerful girls in sparkling stage outfits of lilac, gold and mint, each with a star-shaped microphone, on "
+              "a glowing city stage",
+              "нарядов и образов известных поп-групп и их логотипов"),
+    Archetype("wizard", "Школа волшебства",
+              "первый урок в школе волшебства: ребёнок-ученик, говорящая сова-наставница и добрые учителя",
+              "a cosy round tower school with lanterns, a wise fluffy owl with tiny spectacles carrying a scroll, and a child "
+              "in a starry green cloak holding a wooden wand",
+              "очков-шрама, шляпы-распределителя, полосатых шарфов факультетов и замка с известным вокзалом", True),
+    Archetype("animal_city", "Город зверей",
+              "город, где живут зверята-горожане: хитрый лис-сыщик и смелая крольчиха-патрульная помогают разгадать загадку",
+              "a bustling toy-like city of animals, a clever fox detective in a mustard trench coat, a brave rabbit patrol "
+              "officer in a teal cap and a sleepy sloth clerk",
+              "известных лисы и крольчихи из мультфильма, их форм и значков"),
+    Archetype("braid", "Башня и длинная коса",
+              "добрая девушка с очень длинной косой в высокой башне, которая находит смелость, друзей и дорогу домой",
+              "a kind young girl with a very long golden braid wound around a flower-covered stone tower, a little green "
+              "chameleon-like lizard friend and a friendly horse",
+              "платья, причёски и друзей известной диснеевской принцессы", True),
+    Archetype("mermaid", "Подводное царство",
+              "подводное царство русалок: русалочка, весёлая рыбка и мудрая морская черепаха",
+              "a little mermaid with a coral-pink tail and shell necklace, a cheerful striped yellow fish and an old wise sea "
+              "turtle in a glowing coral palace",
+              "рыжих волос, красного хвоста и ракушек-лифа известной русалки, краба и ведьмы-осьминога", True),
+    Archetype("fastpals", "Быстрые зверята",
+              "гонки быстрых зверят: бегут, прыгают и скользят наперегонки, а побеждает дружба",
+              "a long-legged orange cheetah cub, a sleek otter in a green scarf and a bouncy hare in racing goggles on a "
+              "colourful meadow track",
+              "синего ёжика, его кроссовок и колец"),
+    Archetype("racecars", "Гоночные машинки",
+              "говорящие машинки на трассе: у каждой свой характер, они дружат, соревнуются и помогают друг другу",
+              "small round talking race cars in lime green, sunny orange and violet with big friendly eyes on the "
+              "windscreen, on a looping hill track with checkered flags",
+              "красной гоночной машины с молнией и числом 95, её друзей-эвакуатора и других героев мультфильма"),
+    Archetype("unicorns", "Мир единорогов",
+              "радужный мир единорогов: единорожка с лентой в гриве, пушистое облачко и добрая звёздочка",
+              "a small pastel unicorn with a rainbow ribbon mane and a spiral horn, a fluffy smiling cloud and a tiny "
+              "star fairy in a meadow of flowers",
+              "известных пони и их меток на боках", True),
+    Archetype("heroteam", "Команда супергероев",
+              "несколько героев в разных костюмах, у каждого своя сила, вместе они спасают мир; ребёнок-герой среди них",
+              "four friendly heroes in different bright suits: a girl with a flying jetpack, a boy with a giant shield "
+              "of bubbles, a robot with stretchy arms and a speedy fox in a lightning scarf",
+              "известных героев-мстителей, их щитов, молотов и костюмов"),
+    Archetype("jumpland", "Страна прыжков",
+              "весёлая страна платформ и золотых монеток: герой в красной кепке прыгает, собирает монетки и помогает друзьям",
+              "a cheerful round hero in a red cap and blue dungarees bouncing over floating grassy platforms and golden "
+              "coins, with a friendly mushroom-capped helper",
+              "усатого водопроводчика, грибных врагов и зелёных труб известной игры"),
+    Archetype("football", "Футбол",
+              "стадион, команда и придуманный чемпион: герой-ребёнок тренируется, забивает гол и учится играть вместе",
+              "a sunny green football pitch with a cheerful kid team in matching teal-and-orange shirts, an invented champion "
+              "with a golden captain band and a round fluffy goalkeeper dog",
+              "форм, номеров и лиц настоящих футболистов и клубов"),
 )
 
 

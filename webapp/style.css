@@ -778,7 +778,6 @@ label.btn, label.photo-pick { cursor: pointer; user-select: none; -webkit-user-s
 }
 
 /* шаг «Какой мир любит малыш?»: список миров, подсказка для «своего варианта» и поле с названиями мультиков */
-.world-note { margin: 14px 0 0; animation: in-fwd .25s var(--ease); }
 .field.cartoons { margin-top: 26px; }
 .field-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 6px 4px 0; }
 .field-foot .note { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: 13.5px; font-weight: 500; line-height: 1.4; text-wrap: pretty; }
@@ -805,3 +804,17 @@ label.btn, label.photo-pick { cursor: pointer; user-select: none; -webkit-user-s
 /* главный шаг «Что обязательно должно быть в книге?»: поле крупнее */
 .textarea.big { min-height: 200px; font-size: 17px; line-height: 1.45; }
 .notice.copyright { margin: 16px 0 0; }
+
+/* шаг «Выберите тему книги»: сетка карточек, 2 колонки на узком экране */
+.opts.themes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.opt.theme-opt {
+  position: relative; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 8px;
+  min-height: 132px; padding: 12px 12px 12px; border-radius: 18px;
+}
+.opt.theme-opt .e { width: 44px; height: 44px; border-radius: 14px; }
+.opt.theme-opt .e .ic { width: 28px; height: 28px; }
+.opt.theme-opt .t { flex: none; width: 100%; }
+.opt.theme-opt .t b { font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; }
+.opt.theme-opt .t small { margin-top: 3px; font-size: 12.5px; line-height: 1.3; }
+.opt.theme-opt .tick { position: absolute; top: 10px; right: 10px; width: 20px; height: 20px; }
+@media (min-width: 560px) { .opts.themes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

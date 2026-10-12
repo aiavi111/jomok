@@ -11,7 +11,7 @@ from app.story import PAGES
 from app.writer import assemble_story, validate_plan
 from app.writer_prompts import build_planner_prompts, style_text
 
-from .conftest import SAMPLE, ScriptedImage, tma
+from .conftest import SAMPLE, legacy_profile, ScriptedImage, tma
 from .writer_helpers import author_dict, plan_dict, seeds_for
 
 STYLE_IDS = ["cartoon3d", "flat2d", "realistic"]
@@ -19,7 +19,7 @@ OTHER = {sid: [x for x in STYLE_IDS if x != sid] for sid in STYLE_IDS}
 
 
 def make(**extra) -> Profile:
-    return Profile.from_payload({**SAMPLE, **extra})
+    return legacy_profile(extra)
 
 
 def story_for(profile: Profile):

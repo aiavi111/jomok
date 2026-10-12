@@ -8,68 +8,46 @@ from app import options, prompts
 from app.errors import ValidationError
 from app.profile import FAVORITES_MAX, REQUEST_MAX, Profile
 
-from .conftest import SAMPLE, tma
+from .conftest import SAMPLE, legacy_profile, tma
 
 
 def make(**extra) -> Profile:
-    return Profile.from_payload({**SAMPLE, **extra})
+    return legacy_profile(extra)
 
 
-# ----------------------------------------------------------------------------- список тем
-def test_topics_are_the_agreed_list_with_label_and_hint():
-    assert list(options.TOPICS) == ["adventure", "dinosaurs", "space", "animals", "superheroes", "pirates", "sea",
-                                    "friends", "kindness", "life_lesson", "custom"]
-    labels = {k: v["label"] for k, v in options.TOPICS.items()}
-    assert labels == {"adventure": "Приключение", "dinosaurs": "Динозавры", "space": "Космос", "animals": "Звери и лес",
-                      "superheroes": "Супергерои", "pirates": "Пираты и клад", "sea": "Море", "friends": "Друзья",
-                      "kindness": "Добрые дела", "life_lesson": "Учимся жизни", "custom": "Своя тема"}
-    assert all(v["hint"] and v["emoji"] for v in options.TOPICS.values())
-    assert "зубки" in options.TOPICS["life_lesson"]["hint"].lower() and options.DEFAULT_TOPIC == "adventure"
-
-
-def test_public_options_expose_topics_for_the_mini_app():
+# ----------------------------------------------------------------------------- тема книги = мир из каталога
+def test_topic_is_derived_from_the_catalog_and_old_topics_are_not_in_the_config():
     data = options.public_options()
-    assert [t["id"] for t in data["topics"]] == list(options.TOPICS)
-    assert set(data["topics"][0]) == {"id", "label", "emoji", "hint"} and data["default_topic"] == "adventure"
-    json.dumps(data, ensure_ascii=False)
+    assert "topics" not in data and "default_topic" not in data and "custom" not in [w["id"] for w in data["worlds"]]
+    assert make(world="football").topic == "adventure" and make(world="dino_friend").topic == "dinosaurs"
+    assert make(world="space_crew").topic == "space"
+    assert make(world="football", topic="pirates").topic == "pirates"          # служебная подмена только в тестах писателя
 
 
-# ----------------------------------------------------------------------------- тема
-def test_topic_defaults_to_adventure_when_the_client_does_not_send_it():
-    assert make().topic == "adventure"
-    assert make(topic=None).topic == "adventure" and make(topic="").topic == "adventure"
-
-
-@pytest.mark.parametrize("topic", [t for t in options.TOPICS if t != "custom"])
-def test_every_listed_topic_is_accepted(topic):
-    profile = make(topic=topic)
-    assert profile.topic == topic and profile.topic_label == options.TOPICS[topic]["label"] and profile.topic_custom == ""
-
-
-@pytest.mark.parametrize("bad", ["fairy", "ADVENTURE", 5, ["space"], {"id": "space"}])
-def test_unknown_topic_is_rejected_with_the_field_name(bad):
+def test_world_is_required_and_the_topic_fields_of_old_clients_are_ignored():
+    for empty in (None, ""):
+        with pytest.raises(ValidationError) as err:
+            Profile.from_payload({**SAMPLE, "world": empty})
+        assert err.value.field == "world" and "тему" in err.value.message
+    no_world = {k: v for k, v in SAMPLE.items() if k != "world"}
     with pytest.raises(ValidationError) as err:
-        make(topic=bad)
-    assert err.value.field == "topic"
+        Profile.from_payload(no_world)
+    assert err.value.field == "world"
+    profile = Profile.from_payload({**SAMPLE, "topic": "pirates", "topic_custom": "лишнее"})
+    assert profile.topic == "adventure" and profile.topic_custom == ""          # свободной темы нет: поля от старых клиентов игнорируем
 
 
-def test_custom_topic_needs_a_description_or_a_request():
+@pytest.mark.parametrize("world", list(options.WORLDS))
+def test_every_catalog_theme_is_accepted(world):
+    profile = Profile.from_payload({**SAMPLE, "world": world})
+    assert profile.world == world and profile.world_label == options.WORLDS[world]["label"]
+
+
+@pytest.mark.parametrize("bad", ["custom", "tardis", "kingdom", 5, ["football"], {"id": "football"}])
+def test_unknown_world_is_rejected_with_the_world_field(bad):
     with pytest.raises(ValidationError) as err:
-        make(topic="custom")
-    assert err.value.field == "topic_custom"
-    with pytest.raises(ValidationError):
-        make(topic="custom", topic_custom="   ")
-    own = make(topic="custom", topic_custom="Как мы строим снежную крепость")
-    assert own.topic_label == "Как мы строим снежную крепость"
-    by_request = make(topic="custom", request="Хочу книгу про то, как мы с папой чиним велосипед")
-    assert by_request.topic_label == "Своя тема" and by_request.topic_custom == ""
-
-
-def test_custom_topic_text_is_limited_and_ignored_for_other_topics():
-    with pytest.raises(ValidationError) as err:
-        make(topic="custom", topic_custom="я" * 121)
-    assert err.value.field == "topic_custom"
-    assert make(topic="space", topic_custom="лишнее").topic_custom == ""
+        Profile.from_payload({**SAMPLE, "world": bad})
+    assert err.value.field == "world" and "тему книги" in err.value.message
 
 
 # ----------------------------------------------------------------------------- request и favorites
@@ -122,7 +100,7 @@ def test_empty_request_and_favorites_are_left_out_but_the_topic_is_always_there(
     assert "место действия" in child and "ценность" in child                    # прежние поля на месте
 
 
-def test_custom_topic_goes_to_the_writer_as_the_text_the_parent_wrote():
+def test_old_custom_topic_of_a_stored_order_still_goes_to_the_writer_as_the_text_the_parent_wrote():
     child = make(topic="custom", topic_custom="Мой день рождения в юрте").for_model()
     assert child["topic_label"] == "Мой день рождения в юрте" and "topic_hint" not in child
 
@@ -152,31 +130,29 @@ def test_scrubbed_profile_drops_free_text_but_keeps_the_topic_for_statistics():
 
 
 async def test_order_api_accepts_the_new_fields_and_cleanup_erases_the_free_text(env):
-    payload = {**SAMPLE, "topic": "pirates", "request": "Хочу карту сокровищ", "favorites": "Попугай Кеша"}
+    payload = {**SAMPLE, "request": "Хочу карту сокровищ", "favorites": "Попугай Кеша"}
     order_id = await env.create(payload)
     row = env.db.get_order(order_id)
     stored = json.loads(row["profile_json"])
-    assert stored["topic"] == "pirates" and stored["request"] == "Хочу карту сокровищ" and stored["favorites"] == "Попугай Кеша"
+    assert stored["topic"] == "adventure" and stored["world"] == "football" and stored["request"] == "Хочу карту сокровищ" and stored["favorites"] == "Попугай Кеша"
     await env.wait_done(order_id)
     env.db._exec("UPDATE orders SET created_at=? WHERE id=?", (time.time() - 8 * 86400, order_id))
     assert env.service.cleanup() == 1
     after = json.loads(env.db.get_order(order_id)["profile_json"])
-    assert after["request"] == "" and after["favorites"] == "" and after["topic"] == "pirates" and after["name"] == ""
+    assert after["request"] == "" and after["favorites"] == "" and after["topic"] == "adventure" and after["name"] == ""
 
 
 async def test_order_api_rejects_a_bad_topic_and_too_long_text(env):
-    for extra, field in (({"topic": "unicorns"}, "topic"), ({"request": "я" * 301}, "request"),
-                         ({"favorites": "я" * 121}, "favorites"), ({"topic": "custom"}, "topic_custom")):
+    for extra, field in (({"world": "custom"}, "world"), ({"world": None}, "world"), ({"request": "я" * 301}, "request"),
+                         ({"favorites": "я" * 121}, "favorites")):
         resp = await env.client.post("/api/orders", json={**SAMPLE, **extra}, headers=tma())
         data = await resp.json()
         assert resp.status == 400 and data["field"] == field, (extra, data)
 
 
-async def test_config_exposes_topics_and_the_new_limits(env):
+async def test_config_exposes_the_theme_catalog_and_the_new_limits(env):
     data = await (await env.client.get("/api/config", headers=tma())).json()
-    topics = data["options"]["topics"]
-    assert [t["id"] for t in topics] == list(options.TOPICS) and topics[0]["id"] == "adventure"
-    assert data["options"]["default_topic"] == "adventure"
+    assert "topics" not in data["options"] and data["options"]["worlds"][0]["id"] == "football"
     assert data["limits"]["request_max"] == 300 and data["limits"]["favorites_max"] == 120
     assert data["book_format"] == {
         "pages": PAGES_COUNT, "spreads": PAGES_COUNT + 2,
@@ -188,11 +164,11 @@ async def test_config_exposes_topics_and_the_new_limits(env):
 PAGES_COUNT = 8
 
 
-@pytest.mark.parametrize("key, field", [("place", "place"), ("value", "value"), ("language", "language"), ("topic", "topic")])
+@pytest.mark.parametrize("key, field", [("place", "place"), ("value", "value"), ("language", "language"), ("world", "world")])
 @pytest.mark.parametrize("bad", [["mountains"], {"id": "yurt"}, 7])
 def test_ids_that_arrive_as_lists_or_objects_are_a_validation_error_not_a_crash(key, field, bad):
     with pytest.raises(ValidationError) as err:
-        make(**{key: bad})
+        Profile.from_payload({**SAMPLE, key: bad})
     assert err.value.field == field
 
 

@@ -34,6 +34,7 @@ PLACES: dict[str, dict] = {
     },
 }
 
+# Старые темы: остались только для чтения прежних заказов (в анкету и в /api/config не попадают).
 # О чём книга: одна тема на выбор (id -> подпись, эмодзи, короткая подсказка под кнопкой).
 # «custom» — своя тема: человек описывает её сам (topic_custom).
 DEFAULT_TOPIC = "adventure"
@@ -51,32 +52,45 @@ TOPICS: dict[str, dict] = {
     "custom": {"label": "Своя тема", "emoji": "✏️", "hint": "Опишите сами"},
 }
 
-# Мир книги: «как в любимом мультфильме», но без чужих героев. Каждый мир опирается на оригинального героя-архетипа
-# (app/writer_data.py, ARCHETYPES): характеры и роли похожи по духу, имена, одежда и внешность свои. archetype_key — id архетипа,
-# у «Свой вариант» его нет (мир описывают поля request, favorites и cartoons). Мир необязателен: по умолчанию его нет.
+# Каталог тем книги: родитель выбирает ровно одну (поле profile.world). Каждая тема опирается на оригинального героя-архетипа
+# (app/writer_data.py, ARCHETYPES): роли и характеры «по духу» любимых историй, но имена, одежда и внешность свои, без чужих
+# брендов. archetype_key — id архетипа. topic — служебная тема для зёрен писателя (по умолчанию «adventure»).
+# Порядок = порядок карточек в Mini App: сначала самые частые.
+DEFAULT_WORLD_TOPIC = "adventure"
 WORLDS: dict[str, dict] = {
-    "forest_house": {"label": "Лесной дом", "emoji": "🏡", "hint": "Добродушный медведь и непоседа-проказница",
-                     "archetype_key": "honey"},
-    "rescue_team": {"label": "Малыши-спасатели", "emoji": "🚒", "hint": "Команда, которая спешит на помощь",
-                    "archetype_key": "rescue"},
-    "workshop_helpers": {"label": "Мастерята-помощники", "emoji": "🔧", "hint": "Крошки с инструментами чинят всё вокруг",
-                         "archetype_key": "tinkers"},
-    "ninja_animals": {"label": "Звери-ниндзя", "emoji": "🥷", "hint": "Ловкие друзья с разноцветными повязками",
-                      "archetype_key": "cubs"},
-    "caped_hero": {"label": "Супергерой с плащом", "emoji": "🦸", "hint": "Герой и верный напарник",
-                   "archetype_key": "cape"},
-    "kingdom": {"label": "Королевство", "emoji": "👑", "hint": "Принцессы, замок и добрые драконы",
-                "archetype_key": "kingdom"},
-    "dino_friend": {"label": "Добрый динозаврик", "emoji": "🦖", "hint": "Динозавры и их весёлые друзья",
-                    "archetype_key": "donut"},
-    "space_crew": {"label": "Космический экипаж", "emoji": "🚀", "hint": "Лис-пилот, корабль и робот",
-                   "archetype_key": "crew"},
-    "builders": {"label": "Стройка и машины", "emoji": "🏗️", "hint": "Экскаватор, поезд и дружная стройка",
-                 "archetype_key": "builders"},
-    "mountain_friends": {"label": "Горные друзья Кыргызстана", "emoji": "🏔️",
-                         "hint": "Барсёнок, жеребёнок и птенец орла", "archetype_key": "mountain"},
-    "custom": {"label": "Свой вариант", "emoji": "✏️", "hint": "Опишите любимый мир сами", "archetype_key": None},
+    "football": {"label": "Футбол", "emoji": "⚽", "hint": "Стадион, команда и придуманный чемпион", "archetype_key": "football"},
+    "dino_friend": {"label": "Добрый динозаврик", "emoji": "🦖", "hint": "Динозавры и их весёлые друзья", "archetype_key": "donut", "topic": "dinosaurs"},
+    "princess": {"label": "В стиле принцессы", "emoji": "👑", "hint": "Бал, замок и добрый дракончик", "archetype_key": "kingdom"},
+    "space_crew": {"label": "Путешествие в космос", "emoji": "🚀", "hint": "Лис-пилот, корабль и робот", "archetype_key": "crew", "topic": "space"},
+    "hero_agile": {"label": "Ловкий супергерой", "emoji": "🦸", "hint": "Герой в маске лазит по крышам и спасает город", "archetype_key": "climber"},
+    "rescue_team": {"label": "Малыши-спасатели", "emoji": "🚒", "hint": "Команда, которая спешит на помощь", "archetype_key": "rescue"},
+    "unicorns": {"label": "В мире единорогов", "emoji": "🦄", "hint": "Радужный мир, ленты и волшебные облачка", "archetype_key": "unicorns"},
+    "race_cars": {"label": "Гоночные машинки", "emoji": "🏎️", "hint": "Говорящие машинки на трассе", "archetype_key": "racecars"},
+    "dragon_friend": {"label": "Дружба с драконом", "emoji": "🐉", "hint": "Приручить маленького дракона добротой", "archetype_key": "sneezer"},
+    "mermaid": {"label": "Подводное царство русалок", "emoji": "🧜", "hint": "Коралловый дворец, рыбки и черепаха", "archetype_key": "mermaid"},
+    "hero_team": {"label": "Команда супергероев", "emoji": "🦸", "hint": "Герои в разных костюмах спасают мир", "archetype_key": "heroteam"},
+    "blocks": {"label": "Кубический мир", "emoji": "🧱", "hint": "Строим из кубиков вместе с добрыми кубиками-существами", "archetype_key": "blocks"},
+    "ice_kingdom": {"label": "Ледяное королевство", "emoji": "❄️", "hint": "Снежный замок, ледяная повелительница и олень", "archetype_key": "ice"},
+    "wizard_school": {"label": "Школа волшебства", "emoji": "🪄", "hint": "Первый урок и говорящая сова", "archetype_key": "wizard"},
+    "animal_city": {"label": "Город зверей", "emoji": "🏙️", "hint": "Лис-детектив и крольчиха-патрульная", "archetype_key": "animal_city"},
+    "long_braid": {"label": "Башня и принцесса с длинной косой", "emoji": "🏰", "hint": "Сказка про башню, косу и смелость", "archetype_key": "braid"},
+    "star_singers": {"label": "Поющие защитницы", "emoji": "🎤", "hint": "Девочки со звёздными микрофонами защищают музыку", "archetype_key": "singers"},
+    "fast_pals": {"label": "Гонки быстрых зверят", "emoji": "🐆", "hint": "Зверята бегут наперегонки", "archetype_key": "fastpals"},
+    "jump_land": {"label": "Страна прыжков", "emoji": "🍄", "hint": "Платформы, монетки и весёлый герой в красной кепке", "archetype_key": "jumpland"},
+    "blue_tractor": {"label": "Трактор и стройка", "emoji": "🚜", "hint": "Дружный трактор, экскаватор и поезд", "archetype_key": "builders"},
+    "forest_house": {"label": "Лесной дом", "emoji": "🏡", "hint": "Добродушный медведь и непоседа-проказница", "archetype_key": "honey"},
+    "workshop_helpers": {"label": "Мастерята-помощники", "emoji": "🔧", "hint": "Крошки с инструментами чинят всё вокруг", "archetype_key": "tinkers"},
+    "ninja_animals": {"label": "Звери-ниндзя", "emoji": "🥷", "hint": "Ловкие друзья с разноцветными повязками", "archetype_key": "cubs"},
+    "mountain_friends": {"label": "Горные друзья Кыргызстана", "emoji": "🏔️", "hint": "Барсёнок, жеребёнок и птенец орла", "archetype_key": "mountain"},
 }
+
+# Старые заказы хранили прежние id миров: читаем их как новые (проверка новой анкеты их не принимает).
+LEGACY_WORLDS: dict[str, str] = {"kingdom": "princess", "builders": "blue_tractor", "caped_hero": "hero_agile"}
+
+
+def world_topic(world: str | None) -> str:
+    """Служебная тема книги по выбранной теме каталога."""
+    return (WORLDS.get(world or "") or {}).get("topic", DEFAULT_WORLD_TOPIC)
 
 # Стиль иллюстраций: родитель выбирает один из трёх (id -> подпись, подсказка, эмодзи). Блоки для художника — app/prompts.py.
 # Профиль без стиля или с неизвестным стилем рисуется в стиле по умолчанию (cartoon3d), ошибки нет.
@@ -136,8 +150,6 @@ def public_options() -> dict:
     """Что отдаём Mini App в /api/config."""
     return {
         "places": [{"id": k, "label": v["label"], "emoji": v["emoji"]} for k, v in PLACES.items()],
-        "topics": [{"id": k, "label": v["label"], "emoji": v["emoji"], "hint": v["hint"]} for k, v in TOPICS.items()],
-        "default_topic": DEFAULT_TOPIC,
         "styles": [dict(item) for item in STYLES],
         "default_style": DEFAULT_STYLE,
         "worlds": [{"id": k, "label": v["label"], "hint": v["hint"], "emoji": v["emoji"]} for k, v in WORLDS.items()],

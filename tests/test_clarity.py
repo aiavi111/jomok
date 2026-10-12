@@ -16,12 +16,12 @@ from app.writer import (RefrainMatcher, assemble_story, brief_places, check_stor
 from app.writer_prompts import (build_clarity_rewrite_prompt, build_comprehension_prompts, build_planner_prompts,
                                 build_user_prompt, frameworks_text, team_text)
 
-from .conftest import SAMPLE
+from .conftest import SAMPLE, legacy_profile
 from .writer_helpers import CLEAR, ScriptedPipeline, author_dict, dump, plan_dict, seeds_for, stage_of
 
 
 def make(**extra) -> Profile:
-    return Profile.from_payload({**SAMPLE, **extra})
+    return legacy_profile(extra)
 
 
 def planned(profile: Profile, mutate=None, team: int | None = None):
@@ -190,8 +190,8 @@ def team_profile(**extra) -> Profile:
 
 def test_team_worlds_and_sizes_are_declared():
     assert D.WORLD_TEAM == {"ninja_animals": 4, "rescue_team": 4, "workshop_helpers": 3, "space_crew": 3, "mountain_friends": 3,
-                            "kingdom": 3, "builders": 3}
-    assert world_team_size(team_profile()) == 4 and world_team_size(make()) == 0 and world_team_size(make(world="custom")) == 0
+                            "princess": 3, "blue_tractor": 3}
+    assert world_team_size(team_profile()) == 4 and world_team_size(make()) == 0 and world_team_size(make(world="football")) == 0
     assert all(world in D.WORLD_HELPERS for world in D.WORLD_TEAM) and (D.TEAM_MIN, D.TEAM_MAX) == (2, 4)
 
 
@@ -247,8 +247,8 @@ def test_cartoons_never_ask_for_a_team_they_are_only_inspiration():
 
 
 def test_the_bigger_of_the_world_and_the_request_decides_the_team_size():
-    assert team_size_needed(make(world="ninja_animals")) == 4 and team_size_needed(make(world="kingdom")) == 3
-    assert team_size_needed(make(world="kingdom", request="Команда из четырёх зверей")) == 4
+    assert team_size_needed(make(world="ninja_animals")) == 4 and team_size_needed(make(world="princess")) == 3
+    assert team_size_needed(make(world="princess", request="Команда из четырёх зверей")) == 4
     assert team_size_needed(make(request="Три друга")) == 3 and team_size_needed(make()) == 0
 
 

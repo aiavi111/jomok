@@ -21,12 +21,12 @@ from app.writer import (Fix, Plan, apply_fixes, assemble_story, check_story, for
 from app.writer_prompts import (build_editor_prompts, build_planner_prompts, build_system_prompt, build_user_prompt,
                                 limits_text)
 
-from .conftest import SAMPLE
+from .conftest import SAMPLE, legacy_profile
 from .writer_helpers import (ScriptedPipeline, author_dict, dump, plan_dict, seeded, seeds_for, stage_of)
 
 
 def make(**over) -> Profile:
-    return Profile.from_payload({**SAMPLE, **over})
+    return legacy_profile(over)
 
 
 def story_of(profile: Profile, mutate=None) -> Story:
@@ -304,11 +304,11 @@ def test_names_from_examples_are_not_allowed_unless_they_are_the_hero_or_the_hel
 
 
 # ============================================================================ зёрна
-def test_there_are_forty_short_helper_names_and_twelve_archetypes():
+def test_there_are_forty_short_helper_names_and_twenty_six_archetypes():
     names = [n.name for n in D.HELPER_NAMES]
     assert len(names) == 40 and len(set(names)) == 40
     assert all(writer.syllables(n) <= 2 for n in names), [n for n in names if writer.syllables(n) > 2]
-    assert len(D.ARCHETYPES) == 12 and len({a.id for a in D.ARCHETYPES}) == 12
+    assert len(D.ARCHETYPES) == 26 and len({a.id for a in D.ARCHETYPES}) == 26
     assert len(D.OBSTACLES) >= 12 and len(D.REFRAIN_TYPES) >= 6 and len(D.HELPER_TYPES) >= 20
 
 

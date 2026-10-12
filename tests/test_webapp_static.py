@@ -38,23 +38,31 @@ def test_miniapp_says_book_not_tale():
     assert "Персональная книга" in HTML
 
 
-def test_questionnaire_has_topic_and_extras_steps_after_value():
+def test_questionnaire_has_theme_and_extras_steps_after_value():
     steps = between(JS, "function buildSteps()", "function startWizard")
-    order = [steps.index(f"'{name}'") for name in ("value", "topic", "extras", "islamic", "language", "dedication", "summary")]
+    order = [steps.index(f"'{name}'") for name in ("value", "theme", "extras", "islamic", "language", "dedication", "summary")]
     assert order == sorted(order)
     assert "'place'" not in steps                                      # место родитель описывает в пожеланиях
     assert "'appearance'" in steps and "'photo'" not in steps          # фото живёт внутри шага «Внешность»
-    for name in ("topic", "extras"):
+    assert "'topic'" not in steps and "'world'" not in steps            # отдельных шагов «Тема» и «Мир» больше нет
+    for name in ("theme", "extras"):
         assert re.search(rf"^    {name}: \{{", JS, re.MULTILINE), f"нет шага {name}"
 
 
-def test_topic_step_uses_server_topics_with_icons_and_custom_input():
-    assert "topicList()" in JS and "options.topics" in JS and "default_topic" in JS
-    for topic, icon in (("adventure", "compass"), ("dinosaurs", "dino"), ("space", "rocket"), ("animals", "fox"), ("superheroes", "hero"),
-                        ("pirates", "chest"), ("sea", "boat"), ("friends", "friends"), ("kindness", "heart"), ("life_lesson", "tooth"),
-                        ("custom", "pencil")):
-        assert re.search(rf"{topic}: '{icon}'", between(JS, "const TOPIC_ICON", "\n")), topic
-    assert "Какую книгу хотите?" in JS and "field: 'topic_custom'" in JS and "Например: строим снежную крепость" in JS
+def test_theme_step_is_one_required_grid_of_the_server_catalog_with_own_icons():
+    assert "options.worlds" in JS and "worldList()" in JS
+    for gone in ("topicList", "options.topics", "default_topic", "topic_custom", "TOPIC_ICON", "refreshCustom", "Какую книгу хотите?",
+                 "Опишите тему", "Свой вариант", "custom-world"):
+        assert gone not in JS, gone
+    step = between(JS, "    theme: {", "    style: {")
+    assert "Выберите тему книги" in step and "Герои будут похожи по духу, но свои: чужих героев из мультфильмов использовать нельзя" in step
+    assert "optional" not in step and "auto: true" in step and "valid: () => !!worldPicked()" in step
+    assert "'opt theme-opt'" in step and "choiceButtons('world'" in step
+    assert "S.a.world = " not in between(JS, "function startWizard", "function normalize")     # без предвыбора
+    assert ".opts.themes" in CSS and "repeat(2, minmax(0, 1fr))" in CSS
+    for world_id, icon in (("football", "ball"), ("dino_friend", "dino"), ("princess", "crown"), ("space_crew", "rocket"),
+                           ("unicorns", "unicorn"), ("race_cars", "car"), ("dragon_friend", "dragon"), ("mermaid", "mermaid")):
+        assert re.search(rf"{world_id}: '{icon}'", between(JS, "const WORLD_ICON", "};")), world_id
 
 
 def test_extras_step_texts_and_limits():
@@ -68,13 +76,14 @@ def test_extras_step_texts_and_limits():
     assert len(re.findall(r"label: '[^']+', text:", between(JS, "function requestExamples()", "function syncExamples"))) == 4
 
 
-def test_payload_sends_new_fields_in_contract_order():
+def test_payload_sends_world_and_request_and_server_errors_return_to_the_right_step():
     body = between(JS, "function payload()", "async function submit")
-    positions = [body.index(key) for key in ("topic:", "topic_custom:", "request:")]
+    positions = [body.index(key) for key in ("world:", "request:")]
     assert positions == sorted(positions)
-    assert "a.topic === 'custom' ? a.topic_custom.trim() : ''" in body       # свою тему шлём только при topic = custom
-    for field in ("topic: 'topic'", "topic_custom: 'topic'", "request: 'extras'"):
+    assert "topic" not in body                                               # служебную тему сервер выводит сам
+    for field in ("world: 'theme'", "request: 'extras'"):
         assert field in JS, field                                              # ошибка сервера возвращает на нужный шаг
+    assert "['theme', 'Тема'," in between(JS, "function summaryHtml()", "/* --- чипы --- */")
 
 
 def test_story_pages_are_wide_with_text_below_and_no_alternation():
@@ -106,9 +115,9 @@ def test_old_ids_and_actions_still_exist():
     assert "__V__" in HTML and "query.get('admin') === '1'" in JS
 
 
-def test_style_step_sits_between_world_and_extras_and_is_optional_for_old_server():
+def test_style_step_sits_between_theme_and_extras_and_is_optional_for_old_server():
     steps = between(JS, "function buildSteps()", "function startWizard")
-    order = [steps.index(f"'{name}'") for name in ("topic", "world", "style", "extras", "summary")]
+    order = [steps.index(f"'{name}'") for name in ("theme", "style", "extras", "summary")]
     assert order == sorted(order)
     assert "if (styleList().length) list.push('style')" in steps              # старый сервер без стилей: шаг пропускаем
     assert re.search(r"^    style: \{", JS, re.MULTILINE) and "options.styles" in JS
@@ -155,14 +164,14 @@ def test_every_used_icon_is_drawn_and_server_ids_have_icons():
             "warn", "qr", "receipt", "link", "generic"} <= names
     used = set(re.findall(r"(?:icon\(|icon: |perk\(|stateScreen\()'(\w+)'", JS))
     mapped = set()
-    for table in ("const TOPIC_ICON", "const WORLD_ICON", "const STYLE_ICON", "const LIKE_ICON", "const TRAIT_ICON"):
-        mapped |= set(re.findall(r": '(\w+)'", between(JS, table, "\n")))
+    for table, end in (("const WORLD_ICON", "};"), ("const STYLE_ICON", "\n"), ("const LIKE_ICON", "\n"), ("const TRAIT_ICON", "\n")):
+        mapped |= set(re.findall(r": '(\w+)'", between(JS, table, end)))
     mapped |= set(re.findall(r": '(\w+)'", between(JS, "const STEP_ICON", "};")))
     mapped |= set(re.findall(r"\bi: '(\w+)'", JS))
     assert used and mapped and (used | mapped) - names == set(), f"нет рисунка для: {sorted((used | mapped) - names)}"
-    for ids, table in ((options.VALUES, "const VALUE_META"), (options.TOPICS, "const TOPIC_ICON"),
+    for ids, table in ((options.VALUES, "const VALUE_META"),
                        (options.WORLDS, "const WORLD_ICON"), (options.TRAITS, "const TRAIT_ICON")):
-        block = between(JS, table, "\n  };") if table.endswith("META") else between(JS, table, "\n")
+        block = between(JS, table, "\n  };") if table.endswith("META") or table.endswith("WORLD_ICON") else between(JS, table, "\n")
         for key in ids:
             assert re.search(rf"\b{key}: ", block), f"{table}: нет {key}"
     assert all(f"'{like}':" in between(JS, "const LIKE_ICON", "\n") for like in options.LIKES)
@@ -216,12 +225,12 @@ def test_touch_targets_and_motion_floor_in_css():
     assert "@media (prefers-reduced-motion: reduce)" in CSS and ":focus-visible { outline: 3px solid var(--brand)" in CSS
 
 
-def test_copyright_warning_on_world_extras_and_summary_without_duplicates():
+def test_copyright_warning_on_extras_and_summary_without_duplicates():
     warning = "Нельзя заказывать реальных знаменитостей и героев мультфильмов и кино (их защищают авторские права). Вместо них мы придумаем похожего, но своего героя."
     assert JS.count(warning) == 1                                       # один текст, один источник
     assert "const copyrightNotice" in JS and 'class="notice warn copyright"' in JS and "icon('warn')" in between(JS, "const copyrightNotice", "\n")
-    for step in ("world: {", "extras: {"):
-        assert "copyrightNotice()" in between(JS, f"    {step}", "      valid: () => true"), step
+    assert "copyrightNotice()" in between(JS, "    extras: {", "      valid: () => true")
+    assert "copyrightNotice()" not in between(JS, "    theme: {", "    style: {")      # на шаге темы длинного предупреждения нет, только короткая подсказка
     assert "a.request.trim() ? copyrightNotice()" in between(JS, "function summaryHtml()", "/* --- чипы")
     assert "чужих мультперсонажей использовать нельзя" not in JS
     assert "Героев известных мультфильмов мы заменяем" not in JS

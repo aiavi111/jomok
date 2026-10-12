@@ -165,6 +165,19 @@
     wrench: '<path class="a" d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3.8 17a2 2 0 0 0 2.8 2.8l5.6-5.5a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
     ninja: '<circle class="a" cx="12" cy="12" r="8.5"/><rect class="b" x="6" y="9.6" width="12" height="4.6" rx="2.3"/><path d="M9.4 11.9v.01M14.6 11.9v.01M20 8.2l2 -1.6M20.2 10.6l1.9 1.6"/>',
     crown: '<path class="a" d="M3.5 8.5l4.2 3.6L12 5.5l4.3 6.6 4.2-3.6-1.6 10H5.1z"/><path class="b" d="M5.4 16.5h13.2l-.5 3H5.9z"/>',
+    unicorn: '<path class="a" d="M7 20.5c-.6-3.6 0-6.8 2.4-8.8L12 9.5l5 1.8 2 2.8-2.6 1.2c-.8 1.4-1.2 3.4-1 5.2z"/><path class="b" d="M12 9.5L13.8 3l2 7"/><path d="M14.2 13.4v.01M7.6 14.4c1.4.2 2.4 1 3 2.2"/>',
+    dragon: '<path class="a" d="M4 17c0-5 3-9 8-9s8 4 8 9c0 2-1.5 3-3.5 3h-9C5.5 20 4 19 4 17z"/><path class="b" d="M7 8L6 3.5 10 6.5M17 8l1-4.5L14 6.5"/><path d="M9.4 13v.01M14.6 13v.01M10.4 16.6h3.2"/>',
+    mermaid: '<circle class="a" cx="12" cy="5.8" r="2.8"/><path class="a" d="M9.6 10.4c0 3.8 1 6 2.4 7.2 1.4-1.2 2.4-3.4 2.4-7.2z"/><path class="b" d="M12 17.6L6.6 21M12 17.6l5.4 3.4"/><path d="M8.2 6.6c-.6 2.2-.4 4 .4 5.4M15.8 6.6c.6 2.2.4 4-.4 5.4"/>',
+    heroteam: '<circle class="a" cx="12" cy="7" r="2.6"/><path class="a" d="M7.5 19c0-4 2-6.4 4.5-6.4s4.5 2.4 4.5 6.4z"/><circle class="b" cx="5.4" cy="10.4" r="2"/><circle class="b" cx="18.6" cy="10.4" r="2"/><path class="b" d="M2.4 18.2c0-2.6 1.2-4 3-4M21.6 18.2c0-2.6-1.2-4-3-4"/>',
+    snowflake: '<circle class="a" cx="12" cy="12" r="3"/><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/><path class="b" d="M9.6 4.8L12 6.6l2.4-1.8M9.6 19.2L12 17.4l2.4 1.8"/>',
+    wand: '<path d="M4.5 19.5L14 10"/><path class="a" d="M17.4 3.4l1.3 2.7 2.7 1.3-2.7 1.3-1.3 2.7-1.3-2.7-2.7-1.3 2.7-1.3z"/><path class="b" d="M6 4.4v3M4.5 5.9h3M18.6 16.4v3M17.1 17.9h3"/>',
+    city: '<rect class="a" x="4" y="9.5" width="6.2" height="10.5" rx="1.2"/><rect class="b" x="12" y="4.5" width="8" height="15.5" rx="1.2"/><path d="M7.1 13v.01M7.1 16.6v.01M16 8.6v.01M16 12.4v.01M16 16.2v.01M3 20h18"/>',
+    tower: '<path class="a" d="M8.6 20V9.4h6.8V20z"/><path class="b" d="M7.4 9.4L12 3.2l4.6 6.2z"/><path d="M12 13.2v2.6M5 20h14M15.4 11c2.4 2 2.6 5.2.6 7.6"/>',
+    mic: '<rect class="a" x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/><path class="b" d="M12 6l.7 1.4 1.4.7-1.4.7L12 10.2l-.7-1.4-1.4-.7 1.4-.7z"/>',
+    bolt: '<path class="a" d="M13.6 3L5.6 13.6h5.4L10 21l8.4-11h-5.4z"/><path class="b" d="M2.6 8h2.6M1.8 12h2"/>',
+    coin: '<circle class="a" cx="12" cy="12" r="8.5"/><circle class="b" cx="12" cy="12" r="4.6"/><path d="M12 9.8v4.4"/>',
+    tractor: '<path class="a" d="M4 16V11h6.6l1.6-4.2h4.6V16z"/><circle class="b" cx="8" cy="17" r="3"/><circle class="b" cx="18" cy="18" r="2"/><path d="M14 7V4"/>',
+    mask: '<path class="a" d="M3.5 9.2c3-2 5.8-2.6 8.5-1.6 2.7-1 5.5-.4 8.5 1.6-.3 4-2.5 6.6-5.5 6.6-1.2 0-2-.6-3-.6s-1.8.6-3 .6c-3 0-5.2-2.6-5.5-6.6z"/><path class="b" d="M7.6 11.6h2.4M14 11.6h2.4"/>',
     hardhat: '<path class="a" d="M5 15a7 7 0 0 1 14 0z"/><path d="M12 8v7"/><path class="b" d="M3 15h18v2.6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
 
     /* --- стили картинок --- */
@@ -198,17 +211,21 @@
     respect_elders: { i: 'elder', sub: 'слушать и помогать старшим' },
     courage: { i: 'flag', sub: 'поступать правильно, когда страшно' },
   };
-  const TOPIC_ICON = { adventure: 'compass', dinosaurs: 'dino', space: 'rocket', animals: 'fox', superheroes: 'hero', pirates: 'chest', sea: 'boat', friends: 'friends', kindness: 'heart', life_lesson: 'tooth', custom: 'pencil' };
-  const WORLD_ICON = { forest_house: 'tree', rescue_team: 'buoy', workshop_helpers: 'wrench', ninja_animals: 'ninja', caped_hero: 'hero', kingdom: 'crown', dino_friend: 'dino', space_crew: 'rocket', builders: 'hardhat', mountain_friends: 'mountains', custom: 'pencil' };
+  const WORLD_ICON = {
+    football: 'ball', dino_friend: 'dino', princess: 'crown', space_crew: 'rocket', hero_agile: 'mask', rescue_team: 'buoy',
+    unicorns: 'unicorn', race_cars: 'car', dragon_friend: 'dragon', mermaid: 'mermaid', hero_team: 'heroteam', blocks: 'brick',
+    ice_kingdom: 'snowflake', wizard_school: 'wand', animal_city: 'city', long_braid: 'tower', star_singers: 'mic', fast_pals: 'bolt',
+    jump_land: 'coin', blue_tractor: 'tractor', forest_house: 'tree', workshop_helpers: 'wrench', ninja_animals: 'ninja', mountain_friends: 'mountains',
+  };
   const STYLE_ICON = { cartoon3d: 'cube', flat2d: 'shapes', realistic: 'lens' };
   const LIKE_ICON = { 'Лошади': 'horseshoe', 'Животные': 'paw', 'Динозавры': 'dino', 'Машинки': 'car', 'Рисование': 'brush', 'Музыка': 'note', 'Футбол': 'ball', 'Куклы': 'doll', 'Космос': 'planet', 'Конструктор': 'brick', 'Книги': 'book', 'Сладости': 'candy' };
   const TRAIT_ICON = { kind: 'heart', brave: 'flag', curious: 'search', funny: 'laugh', shy: 'shy', stubborn: 'anchor', caring: 'sprout' };
   const STEP_ICON = {
     name: 'child', age: 'cake', gender: 'friends', appearance: 'portrait', likes: 'heart', traits: 'smile', value: 'bulb',
-    topic: 'book', world: 'rainbow', style: 'palette', extras: 'bubble', islamic: 'moon', language: 'globe', dedication: 'envelope', photo: 'camera',
+    theme: 'rainbow', style: 'palette', extras: 'bubble', islamic: 'moon', language: 'globe', dedication: 'envelope', photo: 'camera',
     summary: 'gift',
   };
-  // предупреждение про реальных людей и чужих героев: на шагах «Мир», «Что ещё добавить?» и в сводке
+  // предупреждение про реальных людей и чужих героев: на шаге «Что ещё добавить?» и в сводке
   const COPYRIGHT_WARNING = 'Нельзя заказывать реальных знаменитостей и героев мультфильмов и кино (их защищают авторские права). Вместо них мы придумаем похожего, но своего героя.';
   const copyrightNotice = () => '<div class="notice warn copyright" role="note">' + icon('warn') + '<span>' + esc(COPYRIGHT_WARNING) + '</span></div>';
   const iconOf = (map, id, fallback) => (map && map[id]) || fallback || 'generic';
@@ -261,7 +278,7 @@
   function freshAnswers(keep) {
     return Object.assign({
       name: '', age: null, gender: null, hair: '', eyes: '', clothes: '', likes: [], traits: [],
-      value: null, topic: null, topic_custom: '', world: null, style: null, request: '',
+      value: null, world: null, style: null, request: '',
       islamic: false, headscarf: false, language: null, dedication: '', photo_consent: false, person_role: 'mother', person_label: '', person_consent: false,
     }, keep || {});
   }
@@ -278,19 +295,7 @@
   const opts = () => S.cfg.options;
   const traitLabel = (t) => (S.a.gender === 'girl' ? t.girl : t.boy);
 
-  // Темы книги и пожелания: бэкенд мог ещё не прислать новые поля, поэтому читаем осторожно
-  const topicList = () => (S.cfg && S.cfg.options && Array.isArray(S.cfg.options.topics) ? S.cfg.options.topics : []);
-  const defaultTopic = () => {
-    const list = topicList();
-    const want = S.cfg && S.cfg.options && S.cfg.options.default_topic;
-    return (list.find((t) => t.id === want) || list.find((t) => t.id === 'adventure') || list[0] || {}).id || null;
-  };
-  const topicLabel = () => {
-    if (S.a.topic === 'custom') return S.a.topic_custom.trim() || 'Своя тема';
-    const t = topicList().find((x) => x.id === S.a.topic);
-    return t ? t.label : '';
-  };
-  // Миры любимых мультфильмов: если сервер не прислал options.worlds (или список пуст), шаг и поля анкеты пропускаем
+  // Тема книги — один обязательный выбор из каталога сервера (options.worlds): без предвыбора и без «своей темы»
   const worldList = () => (S.cfg && S.cfg.options && Array.isArray(S.cfg.options.worlds) ? S.cfg.options.worlds.filter((w) => w && w.id) : []);
   const worldPicked = () => worldList().find((w) => w.id === S.a.world) || null;
   const worldLabel = () => { const w = worldPicked(); return w ? (w.label || '') : ''; };
@@ -589,29 +594,16 @@
         }), 'opt') + '</div>',
       valid: () => !!S.a.value,
     },
-    topic: {
-      title: () => 'Какую книгу хотите?',
-      hint: () => 'Тема задаёт сюжет: про что будут приключения героя. Главным героем останется ваш малыш.',
+    // Обязательный шаг без предвыбора: сетка карточек (2 колонки), по тапу автопереход дальше
+    theme: {
+      title: () => 'Выберите тему книги',
+      hint: () => 'Герои будут похожи по духу, но свои: чужих героев из мультфильмов использовать нельзя',
       auto: true,
-      body: () => '<div class="opts" role="radiogroup" aria-label="Тема книги">' +
-        choiceButtons('topic', topicList().map((t) => {
-          return { id: t.id, html: optionHtml(iconOf(TOPIC_ICON, t.id), t.label, t.hint) };
-        }), 'opt') + '</div><div id="custom-topic"></div>',
-      valid: () => !!S.a.topic && (S.a.topic !== 'custom' || S.a.topic_custom.trim().length > 0),
-      mount() { refreshCustom('topic', false); },
-    },
-    // Необязательный шаг: «как в мультфильме» без чужих героев — выбираем оригинальный мир по духу; автопереход выключен, ниже есть поле
-    world: {
-      optional: true,
-      title: () => 'Какой мир любит ' + nameShown() + '?',
-      hint: () => 'Выберите, на что похоже. Герои будут похожи по духу, но свои.',
-      body: () => '<div class="opts" role="radiogroup" aria-label="Мир, который любит малыш">' +
+      body: () => '<div class="opts themes" role="radiogroup" aria-label="Тема книги">' +
         choiceButtons('world', worldList().map((w) => {
           return { id: w.id, html: optionHtml(iconOf(WORLD_ICON, w.id), w.label, w.hint) };
-        }), 'opt') + '</div><div id="custom-world" aria-live="polite"></div>' + copyrightNotice(),
-      isEmpty: () => !S.a.world,
-      valid: () => true,
-      mount() { refreshWorldNote(); const h = $('h1.q'); if (h) h.focus({ preventScroll: true }); },
+        }), 'opt theme-opt') + '</div>',
+      valid: () => !!worldPicked(),
     },
     // Обязательный шаг с предвыбранным значением: повторное нажатие выбор не снимает; карточки покрупнее, слева большая иконка стиля
     style: {
@@ -733,10 +725,6 @@
     const lang = (opts().languages.find((l) => l.id === a.language) || {}).label || '';
     const look = [S.photo ? 'по фото' : '', a.hair, a.eyes, a.clothes].map((x) => x.trim()).filter(Boolean).join('; ');
     const wishes = [['extras', 'Пожелания', a.request.trim() || 'нет']];
-    // мир: строка «Мир» есть всегда (даже «не выбран», чтобы её можно было изменить)
-    const world = worldLabel()
-      ? worldLabel() + (a.world === 'custom' && !a.request.trim() ? ': опишите в пожеланиях' : '')
-      : 'не выбран';
     const style = styleLabel() || (styleList().length ? 'не выбран' : '');
     const rows = [
       ['name', 'Имя', nameClean()],
@@ -747,8 +735,7 @@
       ['likes', 'Любит', a.likes.join(', ')],
       ['traits', 'Характер', traits],
       ['value', 'Чему учит книга', value],
-      ['topic', 'Тема книги', topicLabel()],
-      ['world', 'Мир', world],
+      ['theme', 'Тема', worldLabel() || 'не выбрана'],
       ['style', 'Стиль', style],
       ...wishes,
       ['islamic', 'Исламский режим', a.islamic ? (a.gender === 'girl' && a.headscarf ? 'Да, героиня в платке' : 'Да') : 'Нет'],
@@ -813,34 +800,6 @@
     input.value = '';
     haptic.select();
     refreshChips('likes');
-  }
-
-  /* --- место и тема: свой вариант (поле появляется под списком) --- */
-  const CUSTOM = {
-    topic: { box: 'custom-topic', input: 'in-ct', lbl: 'l-ct', label: 'Опишите тему', field: 'topic_custom', ph: 'Например: строим снежную крепость', max: textMax },
-  };
-  function refreshCustom(kind, focus) {
-    const c = CUSTOM[kind];
-    const box = document.getElementById(c.box);
-    if (!box) return;
-    if (S.a[kind] !== 'custom') { box.innerHTML = ''; return; }
-    if (!box.firstChild) {
-      box.innerHTML = '<label class="field custom-place"><span class="lbl" id="' + c.lbl + '">' + c.label + '</span><input class="input" id="' + c.input + '" data-field="' + c.field + '" maxlength="' + c.max() + '" autocomplete="off" enterkeyhint="next" aria-labelledby="' + c.lbl + '" placeholder="' + c.ph + '" value="' + esc(S.a[c.field]) + '"></label>';
-    }
-    if (focus) {
-      focusField(c.input);
-      setTimeout(() => { const el = document.getElementById(c.input); if (el && S.screen === 'wizard') el.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }, 90);
-    }
-  }
-
-  /* --- мир: для «своего варианта» подсказываем, где его описать (поле отдельно не нужно: пожелания есть на соседнем шаге) --- */
-  function refreshWorldNote() {
-    const box = document.getElementById('custom-world');
-    if (!box) return;
-    if (S.a.world !== 'custom') { box.innerHTML = ''; return; }
-    if (!box.firstChild) {
-      box.innerHTML = '<div class="notice world-note" role="note">' + icon('pencil') + '<span>Свой мир можно описать словами на шаге «Что ещё добавить?»</span></div>';
-    }
   }
 
   /* --- фото --- */
@@ -960,8 +919,7 @@
   /* --- навигация по шагам --- */
   function buildSteps() {
     const list = ['name', 'age', 'gender', 'appearance', 'likes', 'traits', 'value'];
-    if (topicList().length) list.push('topic');           // старый сервер без тем: шаг пропускаем
-    if (worldList().length) list.push('world');           // старый сервер без миров: шаг пропускаем
+    list.push('theme');                                   // тема из каталога: обязательна
     if (styleList().length) list.push('style');           // старый сервер без стилей: шаг пропускаем
     list.push('extras', 'islamic', 'language', 'dedication', 'summary');
     return list;
@@ -969,7 +927,6 @@
 
   function startWizard(keep) {
     S.a = freshAnswers(keep);
-    if (!S.a.topic) S.a.topic = defaultTopic();
     if (!stylePicked()) S.a.style = defaultStyle();      // шаг обязательный, но уже с выбранным «3D-мультик»
     if (S.photoUrl) URL.revokeObjectURL(S.photoUrl);
     S.photo = null; S.photoUrl = null;
@@ -1058,16 +1015,13 @@
     const field = el.dataset.field;
     let value = el.dataset.value;
     if (field === 'age') value = Number(value);
-    if (field === 'world' && S.a.world === value) value = null;      // шаг необязательный: повторное нажатие снимает выбор
     S.a[field] = value;
     haptic.select();
     $$('[data-field="' + field + '"]').forEach((b) => b.setAttribute('aria-checked', String(value != null && String(b.dataset.value) === String(value))));
-    if (field === 'topic') refreshCustom(field, value === 'custom');
-    if (field === 'world') refreshWorldNote();
     if (field === 'person_role') refreshPerson();
     updateFooter();
     const st = STEP[S.steps[S.idx]];
-    if (st.auto && value !== 'custom') {                 // «свой вариант»: сначала нужно вписать текст
+    if (st.auto) {
       const stepId = S.steps[S.idx];
       clearTimeout(S.autoTimer);
       S.autoTimer = setTimeout(() => { if (S.screen === 'wizard' && S.steps[S.idx] === stepId && S.a[field] === value) next(); }, 260);
@@ -1082,14 +1036,11 @@
       appearance: { hair: a.hair.trim(), eyes: a.eyes.trim(), clothes: a.clothes.trim() },
       likes: a.likes, traits: a.traits,
       value: a.value,
-      topic: a.topic, topic_custom: a.topic === 'custom' ? a.topic_custom.trim() : '', request: a.request.trim(),
+      world: a.world, request: a.request.trim(),
       islamic: a.islamic, headscarf: a.headscarf, language: a.language,
       dedication: a.dedication.trim(), photo_consent: !!((S.photo && a.photo_consent) || (S.person && a.person_consent)),
     };
     if (S.person) { body.person_role = personRole().id; if (body.person_role === 'other') body.person_label = a.person_label.trim(); }
-    if (worldList().length) {                      // сервер без миров этих полей не знает: не шлём
-      body.world = worldPicked() ? a.world : null; // пропустили шаг: null
-    }
     if (styleList().length) body.style = stylePicked() ? a.style : defaultStyle();   // сервер без стилей поля не знает: не шлём
     return body;
   }
@@ -1134,7 +1085,7 @@
       }
     }
   }
-  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', value: 'value', topic: 'topic', topic_custom: 'topic', world: 'world', style: 'style', request: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance', person_photo: 'appearance' };
+  const STEP_BY_FIELD = { name: 'name', age: 'age', gender: 'gender', likes: 'likes', traits: 'traits', value: 'value', world: 'theme', style: 'style', request: 'extras', language: 'language', dedication: 'dedication', photo: 'appearance', photo_consent: 'appearance', person_photo: 'appearance' };
 
   /* ===================================================================== ожидание */
   const STAGES = [['pencil', 'Пишу книгу'], ['image', 'Рисую обложку'], ['palette', 'Иллюстрации'], ['book', 'Собираю книгу']];
@@ -1492,7 +1443,7 @@
     c = c || {};
     c.limits = Object.assign({ remaining_today: 1, books_per_day: 3 }, c.limits || {});
     c.options = c.options || {};
-    ['values', 'traits', 'likes', 'languages', 'places', 'topics'].forEach((k) => { if (!Array.isArray(c.options[k])) c.options[k] = []; });
+    ['values', 'traits', 'likes', 'languages', 'places', 'worlds'].forEach((k) => { if (!Array.isArray(c.options[k])) c.options[k] = []; });
     return c;
   }
 

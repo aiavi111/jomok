@@ -31,9 +31,27 @@ ADMIN_ID = 777
 SAMPLE = {
     "name": "Айдар", "age": 6, "gender": "boy",
     "appearance": {"hair": "", "eyes": "", "clothes": ""},
-    "likes": ["Лошади"], "traits": ["kind", "brave"], "place": "yurt", "value": "kindness",
+    "likes": ["Лошади"], "traits": ["kind", "brave"], "place": "yurt", "value": "kindness", "world": "football",
     "islamic": False, "headscarf": False, "language": "ru", "dedication": "Для сына",
 }
+
+
+def legacy_profile(extra: dict | None = None, base: dict | None = None):
+    """Профиль для тестов писателя: как раньше, без мира (world=None) и с любой служебной темой (topic), если не сказано иное.
+    Новая анкета требует мир из каталога, поэтому строим профиль с миром по умолчанию и потом ставим нужные старые значения."""
+    from app.profile import Profile
+    data = {**(base or SAMPLE), **(extra or {})}
+    topic, topic_custom = data.pop("topic", None), data.pop("topic_custom", None)
+    world_given = bool((extra or {}).get("world"))
+    data["world"] = data.get("world") if world_given else "football"
+    profile = Profile.from_payload(data)
+    if not world_given:
+        profile.world, profile.topic = None, Profile.__dataclass_fields__["topic"].default
+    if topic is not None:
+        profile.topic = topic
+    if topic_custom is not None:
+        profile.topic_custom = topic_custom
+    return profile
 
 
 @pytest.fixture(autouse=True)

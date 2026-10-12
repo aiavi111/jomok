@@ -18,7 +18,7 @@ from app.providers.image_openai import OpenAIImageProvider
 from app.providers.text_gemini import GeminiTextProvider
 from app.providers.text_openai import OpenAITextProvider
 
-from .conftest import SAMPLE, make_settings
+from .conftest import SAMPLE, legacy_profile, make_settings
 from .test_story import good_story
 from .writer_helpers import CLEAR, NO_FIXES, dump, plan_and_text, seeded
 from app.profile import Profile
@@ -299,7 +299,7 @@ async def test_gemini_request_follows_docs(profile):
 
 
 async def test_gemini_skips_thought_parts_and_joins_text():
-    profile = Profile.from_payload(SAMPLE)
+    profile = legacy_profile()
     plan, text = plan_and_text(profile)
     reply = jr(200, {"candidates": [{"content": {"parts": [
         {"text": "размышления", "thought": True}, {"text": plan[:50]}, {"text": plan[50:]}]}}]})
@@ -500,7 +500,7 @@ KY_PROFILE = {**SAMPLE, "language": "ky"}
 
 
 def _ky():
-    profile = Profile.from_payload(KY_PROFILE)
+    profile = legacy_profile(base=KY_PROFILE)
     plan, text = plan_and_text(profile)
     edited_first = json.loads(text)["pages"][0]["text"].replace("ысык", "жылуу")
     edited = json.loads(text)

@@ -18,15 +18,17 @@ from app.story import PAGES, Story, validate_story
 from app.writer import assemble_story, brand_hits, check_story, pick_seeds, validate_plan
 from app.writer_prompts import build_planner_prompts, build_system_prompt, build_user_prompt, world_text
 
-from .conftest import SAMPLE, ScriptedImage, tma
+from .conftest import SAMPLE, legacy_profile, ScriptedImage, tma
 from .writer_helpers import ScriptedPipeline, author_dict, plan_dict, seeds_for
 
-WORLD_IDS = ["forest_house", "rescue_team", "workshop_helpers", "ninja_animals", "caped_hero", "kingdom", "dino_friend",
-             "space_crew", "builders", "mountain_friends", "custom"]
+WORLD_IDS = ["football", "dino_friend", "princess", "space_crew", "hero_agile", "rescue_team", "unicorns", "race_cars",
+             "dragon_friend", "mermaid", "hero_team", "blocks", "ice_kingdom", "wizard_school", "animal_city", "long_braid",
+             "star_singers", "fast_pals", "jump_land", "blue_tractor", "forest_house", "workshop_helpers", "ninja_animals",
+             "mountain_friends"]
 
 
 def make(**extra) -> Profile:
-    return Profile.from_payload({**SAMPLE, **extra})
+    return legacy_profile(extra)
 
 
 def book(profile: Profile):
@@ -36,28 +38,31 @@ def book(profile: Profile):
 
 
 # ----------------------------------------------------------------------------- список миров
-def test_worlds_are_the_agreed_eleven_in_the_agreed_order():
-    assert list(options.WORLDS) == WORLD_IDS
+def test_worlds_are_the_agreed_catalog_of_24_in_the_agreed_order():
+    assert list(options.WORLDS) == WORLD_IDS and len(WORLD_IDS) == 24 and "custom" not in options.WORLDS
     assert options.WORLDS["forest_house"]["label"] == "Лесной дом"
     assert "медведь" in options.WORLDS["forest_house"]["hint"] and "проказница" in options.WORLDS["forest_house"]["hint"]
-    emoji = {k: v["emoji"] for k, v in options.WORLDS.items()}
-    assert emoji == {"forest_house": "🏡", "rescue_team": "🚒", "workshop_helpers": "🔧", "ninja_animals": "🥷",
-                     "caped_hero": "🦸", "kingdom": "👑", "dino_friend": "🦖", "space_crew": "🚀", "builders": "🏗️",
-                     "mountain_friends": "🏔️", "custom": "✏️"}
+    assert options.WORLDS["football"]["label"] == "Футбол" and options.WORLDS["princess"]["label"] == "В стиле принцессы"
     assert all(v["label"] and v["hint"] and v["emoji"] for v in options.WORLDS.values())
-    assert options.WORLDS["custom"]["label"] == "Свой вариант"
+    assert len({v["label"] for v in options.WORLDS.values()}) == 24
 
 
-def test_every_world_rests_on_an_original_archetype_except_the_custom_one():
+def test_every_theme_rests_on_an_original_archetype_and_none_shares_one():
     ids = {a.id for a in D.ARCHETYPES}
     for world_id, world in options.WORLDS.items():
-        if world_id == "custom":
-            assert world["archetype_key"] is None and D.archetype_for_world("custom") is None
-        else:
-            assert world["archetype_key"] in ids, world_id
-            assert D.archetype_for_world(world_id).id == world["archetype_key"]
-    used = [w["archetype_key"] for w in options.WORLDS.values() if w["archetype_key"]]
-    assert len(used) == len(set(used)) == 10                                  # у каждого мира свой архетип
+        assert world["archetype_key"] in ids, world_id
+        assert D.archetype_for_world(world_id).id == world["archetype_key"] or D.archetype_for_world(world_id) is None
+    used = [w["archetype_key"] for w in options.WORLDS.values()]
+    assert len(used) == len(set(used)) == 24                                 # у каждой темы свой архетип
+
+
+def test_catalog_has_no_foreign_brand_names():
+    banned = ("minecraft", "frozen", "холодное сердце", "человек-паук", "spider", "гарри", "поттер", "хогвартс", "mario", "марио",
+              "мстител", "маквин", "дисней", "disney", "k-pop", "эльза", "ёжик соник", "sonic", "pixar")
+    for world_id, world in options.WORLDS.items():
+        text = f"{world['label']} {world['hint']}".lower()
+        assert not any(b in text for b in banned), world_id
+        assert not brand_hits(text), world_id
 
 
 def test_new_archetypes_for_the_kingdom_and_the_builders_are_original_looks():
@@ -75,8 +80,10 @@ def test_archetype_looks_never_name_a_brand():
 
 
 def test_islamic_mode_drops_the_magic_archetype_of_a_world_but_not_the_rest():
-    assert D.archetype_for_world("kingdom", islamic=True) is None
-    assert D.archetype_for_world("kingdom", islamic=False).id == "kingdom"
+    for magic in ("princess", "unicorns", "wizard_school", "mermaid", "ice_kingdom", "dragon_friend", "long_braid"):
+        assert D.archetype_for_world(magic, islamic=True) is None and D.archetype_for_world(magic).magic, magic
+    assert D.archetype_for_world("princess", islamic=False).id == "kingdom"
+    assert D.archetype_for_world("football", islamic=True).id == "football"
     assert D.archetype_for_world("forest_house", islamic=True).id == "honey"
     assert D.archetype_for_world(None) is None and D.archetype_for_world("nonsense") is None
 
@@ -89,23 +96,35 @@ def test_public_options_expose_worlds_without_the_internal_archetype_key():
 
 
 # ----------------------------------------------------------------------------- анкета: world и cartoons
-def test_world_is_optional_and_defaults_to_none():
-    assert make().world is None and make().cartoons == ""
+def test_world_is_required_for_new_orders_and_old_stored_orders_without_it_still_read():
+    assert make().world is None and make().cartoons == ""                   # make() — профиль «как раньше», без мира
     for empty in (None, ""):
-        assert make(world=empty).world is None
+        with pytest.raises(ValidationError) as err:
+            Profile.from_payload({**SAMPLE, "world": empty})
+        assert err.value.field == "world"
+    old = Profile.from_dict({k: v for k, v in Profile.from_payload(SAMPLE).to_dict().items() if k != "world"})
+    assert old.world is None and old.for_model().get("world_label") is None
+
+
+def test_legacy_world_ids_of_old_orders_are_read_as_the_new_ones():
+    for old, new in (("kingdom", "princess"), ("builders", "blue_tractor"), ("caped_hero", "hero_agile")):
+        data = {**Profile.from_payload(SAMPLE).to_dict(), "world": old}
+        assert Profile.from_dict(data).world == new and Profile.from_dict(data).world_label
+        with pytest.raises(ValidationError):
+            Profile.from_payload({**SAMPLE, "world": old})                  # новая анкета старые id не берёт
 
 
 @pytest.mark.parametrize("world", WORLD_IDS)
 def test_every_listed_world_is_accepted(world):
-    profile = make(world=world)
+    profile = legacy_profile({"world": world})
     assert profile.world == world and profile.world_label == options.WORLDS[world]["label"]
 
 
-@pytest.mark.parametrize("bad", ["tardis", "FOREST_HOUSE", " forest_house", 5, False, ["forest_house"], {"id": "kingdom"}])
+@pytest.mark.parametrize("bad", ["tardis", "FOREST_HOUSE", " forest_house", 5, False, ["forest_house"], {"id": "kingdom"}, "custom"])
 def test_unknown_world_is_rejected_with_the_world_field(bad):
     with pytest.raises(ValidationError) as err:
-        make(world=bad)
-    assert err.value.field == "world" and "мир" in err.value.message.lower()
+        Profile.from_payload({**SAMPLE, "world": bad})
+    assert err.value.field == "world" and "тему" in err.value.message.lower()
 
 
 def test_cartoons_are_cleaned_like_the_other_free_texts_and_limited_to_120_characters():
@@ -136,19 +155,17 @@ def test_a_book_without_a_world_or_cartoons_keeps_the_old_child_block():
     assert not {"world_label", "world_hint", "archetype", "cartoons", "cartoons_note"} & set(child)
 
 
-def test_custom_world_has_no_archetype_and_a_magic_world_loses_it_in_islamic_mode():
-    custom = make(world="custom").for_model()
-    assert custom["world_label"] == "Свой вариант" and "archetype" not in custom
-    assert "archetype" not in make(world="kingdom", islamic=True).for_model()
-    assert make(world="kingdom").for_model()["archetype"] == D.archetype_by_id("kingdom").title
+def test_a_magic_world_loses_its_archetype_in_islamic_mode():
+    assert "archetype" not in make(world="princess", islamic=True).for_model()
+    assert make(world="princess").for_model()["archetype"] == D.archetype_by_id("kingdom").title
 
 
 def test_profile_roundtrip_and_scrubbing_keep_the_world_but_erase_the_cartoons():
-    profile = make(world="builders", cartoons="Фиксики и Лунтик")
+    profile = make(world="blue_tractor", cartoons="Фиксики и Лунтик")
     again = Profile.from_dict(json.loads(json.dumps(profile.to_dict(), ensure_ascii=False)))
-    assert (again.world, again.cartoons) == ("builders", "Фиксики и Лунтик")
+    assert (again.world, again.cartoons) == ("blue_tractor", "Фиксики и Лунтик")
     scrubbed = profile.scrubbed()
-    assert scrubbed["cartoons"] == "" and scrubbed["world"] == "builders" and "Лунтик" not in json.dumps(scrubbed, ensure_ascii=False)
+    assert scrubbed["cartoons"] == "" and scrubbed["world"] == "blue_tractor" and "Лунтик" not in json.dumps(scrubbed, ensure_ascii=False)
     old = profile.to_dict()
     old.pop("world"), old.pop("cartoons")
     restored = Profile.from_dict(old)
@@ -160,7 +177,7 @@ async def test_config_lists_the_worlds_and_the_cartoons_limit(env):
     data = await (await env.client.get("/api/config", headers=tma())).json()
     worlds = data["options"]["worlds"]
     assert [w["id"] for w in worlds] == WORLD_IDS and set(worlds[0]) == {"id", "label", "hint", "emoji"}
-    assert worlds[0] == {"id": "forest_house", "label": "Лесной дом", "hint": options.WORLDS["forest_house"]["hint"], "emoji": "🏡"}
+    assert worlds[0] == {"id": "football", "label": "Футбол", "hint": options.WORLDS["football"]["hint"], "emoji": "⚽"}
     assert data["limits"]["cartoons_max"] == 120 and data["limits"]["favorites_max"] == 120
 
 
@@ -177,22 +194,25 @@ async def test_order_api_accepts_world_and_cartoons_and_cleanup_erases_only_the_
 
 
 @pytest.mark.parametrize("extra, field", [({"world": "tardis"}, "world"), ({"world": 7}, "world"),
-                                          ({"world": ["kingdom"]}, "world"), ({"cartoons": "я" * 121}, "cartoons")])
+                                          ({"world": ["kingdom"]}, "world"), ({"world": None}, "world"), ({"world": "custom"}, "world"), ({"cartoons": "я" * 121}, "cartoons")])
 async def test_order_api_rejects_a_bad_world_and_too_long_cartoons(env, extra, field):
     resp = await env.client.post("/api/orders", json={**SAMPLE, **extra}, headers=tma())
     data = await resp.json()
     assert resp.status == 400 and data["field"] == field, data
-    assert (await env.client.post("/api/orders", json={**SAMPLE, "world": None, "cartoons": ""}, headers=tma())).status == 201
+    assert (await env.client.post("/api/orders", json={**SAMPLE, "world": "football", "cartoons": ""}, headers=tma())).status == 201
 
 
-async def test_old_clients_without_the_new_fields_still_work(env):
+async def test_a_client_without_a_theme_gets_a_clear_error_on_the_world_field(env):
+    resp = await env.client.post("/api/orders", json={k: v for k, v in SAMPLE.items() if k != "world"}, headers=tma())
+    data = await resp.json()
+    assert resp.status == 400 and data["field"] == "world" and "тему" in data["error"].lower() if "error" in data else data["field"] == "world"
     order_id = await env.create(SAMPLE)
     stored = json.loads(env.db.get_order(order_id)["profile_json"])
-    assert stored["world"] is None and stored["cartoons"] == ""
+    assert stored["world"] == "football" and stored["cartoons"] == ""
 
 
 # ----------------------------------------------------------------------------- зёрна: помощник и место из мира
-@pytest.mark.parametrize("world", [w for w in WORLD_IDS if w != "custom"])
+@pytest.mark.parametrize("world", list(D.WORLD_HELPERS))
 def test_the_helper_and_the_setting_come_from_the_chosen_world(world):
     profile = make(world=world)
     allowed = set(D.WORLD_HELPERS[world])
@@ -204,25 +224,25 @@ def test_the_helper_and_the_setting_come_from_the_chosen_world(world):
         assert seeds.helper_name.gender in (seeds.helper_type.gender, "n") and seeds.palette in D.PALETTES
 
 
-def test_a_topic_with_its_own_settings_beats_the_world_setting_and_custom_world_uses_the_usual_pool():
+def test_a_topic_with_its_own_settings_beats_the_world_setting_and_a_world_without_helpers_uses_the_usual_pool():
     space = make(world="forest_house", topic="space")
     assert all(pick_seeds(space, random.Random(i)).setting in D.SETTINGS_BY_TOPIC["space"] for i in range(20))
-    custom = make(world="custom")
-    types = {pick_seeds(custom, random.Random(i)).helper_type.id for i in range(120)}
+    plain = make(world="football")
+    types = {pick_seeds(plain, random.Random(i)).helper_type.id for i in range(120)}
     assert len(types) >= 8 and not types & {"excavator", "little_train", "tinker", "rescue_hare"}
 
 
 def test_world_only_helpers_never_appear_in_books_without_that_world():
     only = {t.id for t in D.HELPER_TYPES if t.world_only}
     assert only == {"rescue_hare", "tinker", "excavator", "little_train"}
-    for profile in (make(), make(topic="space"), make(world="forest_house"), make(world="kingdom")):
+    for profile in (make(), make(topic="space"), make(world="forest_house"), make(world="princess")):
         assert not only & {pick_seeds(profile, random.Random(i)).helper_type.id for i in range(150)}
 
 
 def test_a_magic_world_gets_a_plain_helper_in_islamic_mode():
-    islamic = make(world="kingdom", islamic=True)
+    islamic = make(world="princess", islamic=True)
     assert {pick_seeds(islamic, random.Random(i)).helper_type.id for i in range(80)} == {"kitten"}
-    assert "dragon" in {pick_seeds(make(world="kingdom"), random.Random(i)).helper_type.id for i in range(80)}
+    assert "dragon" in {pick_seeds(make(world="princess"), random.Random(i)).helper_type.id for i in range(80)}
 
 
 def test_palette_follows_the_topic_often_and_all_five_palettes_are_used():
@@ -254,10 +274,8 @@ def test_planner_without_a_world_or_cartoons_has_neither_block():
     assert world_text(profile) == ""
 
 
-def test_planner_text_for_a_custom_world_and_for_a_magic_world_in_islamic_mode():
-    custom = make(world="custom", cartoons="Что-то любимое")
-    assert "Это свой вариант" in world_text(custom) and "request, favorites и cartoons" in world_text(custom)
-    islamic = make(world="kingdom", islamic=True)
+def test_planner_text_for_a_magic_world_in_islamic_mode():
+    islamic = make(world="princess", islamic=True)
     text = world_text(islamic)
     assert "без магии, драконов и фей" in text and D.archetype_by_id("kingdom").title not in text
     system, _ = build_planner_prompts(islamic, seeds_for(islamic))
@@ -276,10 +294,10 @@ def test_planner_prefers_a_cheerful_goal_a_joyful_tone_counting_and_one_palette(
     assert "ОДНА палитра из списка ниже" in system and "Лица весёлые" in system
 
 
-def test_planner_prompt_lists_all_twelve_archetypes():
+def test_planner_prompt_lists_all_archetypes():
     profile = make()
     system, _ = build_planner_prompts(profile, seeds_for(profile))
-    assert all(a.title in system for a in D.ARCHETYPES) and len(D.ARCHETYPES) == 12
+    assert all(a.title in system for a in D.ARCHETYPES) and len(D.ARCHETYPES) == 26
 
 
 # ----------------------------------------------------------------------------- «библия героев» и картинки
@@ -293,10 +311,10 @@ def test_the_story_cast_gets_the_worlds_look_in_english_only_when_a_world_is_cho
     assert Story.from_dict(json.loads(json.dumps(story.to_dict(), ensure_ascii=False))) == story
 
 
-def test_custom_world_and_islamic_magic_world_add_no_world_entry_to_the_cast():
-    _, custom = book(make(world="custom"))
-    assert custom.character("world") is None and len(custom.cast) == 3
-    _, islamic = book(make(world="kingdom", islamic=True))               # королевство — команда: друзья в cast есть, магического мира нет
+def test_no_world_and_islamic_magic_world_add_no_world_entry_to_the_cast():
+    _, plain = book(make())
+    assert plain.character("world") is None and len(plain.cast) == 3
+    _, islamic = book(make(world="princess", islamic=True))               # королевство — команда: друзья в cast есть, магического мира нет
     assert islamic.character("world") is None and [c.role for c in islamic.cast] == ["hero", "helper", "teammate", "teammate", "obstacle"]
 
 
@@ -390,7 +408,7 @@ async def test_pipeline_with_a_world_puts_the_archetype_into_the_planner_and_int
 
 
 async def test_mock_provider_ignores_the_world_but_still_returns_a_valid_book():
-    profile = make(world="kingdom", cartoons="Холодное сердце")
+    profile = make(world="princess", cartoons="Холодное сердце")
     story = await MockTextProvider().generate_story(profile)
     assert len(story.pages) == PAGES and not check_story(story, profile)
 

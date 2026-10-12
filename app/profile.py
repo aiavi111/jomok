@@ -63,7 +63,7 @@ class Profile:
     topic_custom: str = ""               # своя тема, если topic == "custom"
     request: str = ""                    # свободный текст: что хотят увидеть в книге
     favorites: str = ""                  # свободный текст: любимые герои, животные, игрушки
-    world: str | None = None             # id из options.WORLDS: мир книги («как в любимом мультфильме»); None — мира нет
+    world: str | None = None             # id из options.WORLDS: тема книги из каталога (обязательна в новых заказах; None — только у старых)
     cartoons: str = ""                   # свободный текст: любимые мультфильмы и герои (только вдохновение для писателя)
     style: str = options.DEFAULT_STYLE   # id из options.STYLES: стиль иллюстраций; неизвестный или пустой — по умолчанию
     value: str = "kindness"
@@ -159,23 +159,15 @@ class Profile:
         if not _known(value, options.VALUES):
             raise ValidationError("Выберите, чему учит книга.", field="value")
 
-        topic = data.get("topic")
-        if topic is None or topic == "":
-            topic = options.DEFAULT_TOPIC                      # старые клиенты тему не присылают: приключение
-        if not _known(topic, options.TOPICS):
-            raise ValidationError("Выберите тему книги из списка.", field="topic")
-        topic_custom = text("topic_custom", "Своя тема") if topic == "custom" else ""
-        request = text("request", "Что вы хотите увидеть в книге", REQUEST_MAX)
-        favorites = text("favorites", "Любимые герои, животные, игрушки", FAVORITES_MAX)
-        if topic == "custom" and not (topic_custom or request):
-            raise ValidationError("Опишите свою тему или напишите, что хотите увидеть в книге.",
-                                  field="topic_custom")
-
         world = data.get("world")
         if world is None or world == "":
-            world = None                                       # мир необязателен: старые клиенты его не присылают
-        elif not _known(world, options.WORLDS):
-            raise ValidationError("Выберите мир книги из списка.", field="world")
+            raise ValidationError("Выберите тему книги.", field="world")
+        if not _known(world, options.WORLDS):
+            raise ValidationError("Выберите тему книги из списка.", field="world")
+        topic = options.world_topic(world)                     # служебная тема выводится из каталога
+        topic_custom = ""
+        request = text("request", "Что вы хотите увидеть в книге", REQUEST_MAX)
+        favorites = text("favorites", "Любимые герои, животные, игрушки", FAVORITES_MAX)
         cartoons = text("cartoons", "Любимые мультфильмы", CARTOONS_MAX)
 
         style = data.get("style")
@@ -210,7 +202,9 @@ class Profile:
     @classmethod
     def from_dict(cls, data: dict) -> "Profile":
         known = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
-        return cls(**{k: v for k, v in data.items() if k in known})
+        profile = cls(**{k: v for k, v in data.items() if k in known})
+        profile.world = options.LEGACY_WORLDS.get(profile.world or "", profile.world)   # старые id миров читаются как новые
+        return profile
 
     def scrubbed(self) -> dict:
         """Копия без личных данных — остаётся после удаления файлов, для статистики."""

@@ -349,7 +349,7 @@ class OrderService:
         lines = [f"🧾 Новый заказ {order_id}",
                  f"От: {name}" + (f" (@{username})" if username else "") + f", id {user.id}",
                  f"Герой: {profile.name}, {profile.age} {ru_plural(profile.age, 'год', 'года', 'лет')}, {gender}",
-                 f"Тема: {profile.topic_label}" + (f" · мир: {profile.world_label}" if profile.world_label else ""),
+                 f"Тема: {profile.world_label or profile.topic_label}",
                  f"Стиль: {profile.style_label} · язык: {'кыргызский' if profile.language == 'ky' else 'русский'}"
                  f" · фото: {'есть' if has_photo else 'нет'}" + f" · фото близкого человека: {('есть, ' + profile.person_ru) if profile.has_person_photo else 'нет'}" + (" · исламский режим" if profile.islamic else "")]
         if needs_payment:
