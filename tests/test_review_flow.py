@@ -986,6 +986,23 @@ async def test_review_chat_id_gets_the_files_and_the_buttons(monkeypatch):
         Settings.from_env()
 
 
+async def test_resend_sends_everything_that_waits_for_a_decision(tmp_path):
+    env = await make_env(tmp_path)
+    try:
+        done = await make_request(env, user=USER)
+        await env.service.accept_request(done)
+        await wait_status(env, done, "in_review")
+        await give_access(env, user_id=USER + 1, credits=1)
+        waiting = await make_request(env, user=USER + 1)
+        assert env.db.get_order(waiting)["status"] == "awaiting_approval"
+        env.notifier.reviews.clear(); env.notifier.admin_books.clear(); env.notifier.requests.clear()
+        assert await env.service.resend_pending() == (1, 1)
+        assert [o for o, _ in env.notifier.requests] == [waiting] and [o for o, _ in env.notifier.reviews] == [done]
+        assert len(env.notifier.admin_books) == 2                      # оба PDF по книге на проверке
+    finally:
+        await env.service.shutdown(); await env.client.close(); env.db.close()
+
+
 async def test_a_broken_chat_never_breaks_the_order(tmp_path):
     class Broken(FakeNotifier):
         async def notify_request(self, order_id, text):

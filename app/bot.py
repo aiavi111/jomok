@@ -236,6 +236,18 @@ def build_router() -> Router:
         sent = await runtime.service.send_recent_mobile(10)
         await message.answer(f"Готово: отправил {sent} шт." if sent else "Подходящих книг пока нет: у них удалены файлы или книг ещё не было.")
 
+    @router.message(Command("resend"), private)
+    async def on_resend(message: Message, runtime: "BotRuntime") -> None:
+        """Администратор или проверяющий: заново прислать всё, что ждёт решения (заявки и книги с двумя PDF)."""
+        service = runtime.service
+        if service is None or not service.can_review(_user_id(message)):
+            await message.answer("Эта команда только для владельца бота.")
+            return
+        await message.answer("Отправляю всё, что ждёт решения…")
+        requests, books = await service.resend_pending()
+        await message.answer(f"Готово: заявок {requests}, книг на проверке {books}." if requests or books
+                             else "Сейчас ничего не ждёт решения.")
+
     @router.message(Command("admin"), private)
     async def on_admin(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
         if not runtime.settings.is_admin_id(_user_id(message)):

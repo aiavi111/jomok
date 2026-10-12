@@ -1034,6 +1034,25 @@ class OrderService:
                 log.warning("Заказ %s: напоминание не отправлено (нет файлов книги)", order_id)
         return sent
 
+    async def resend_pending(self) -> tuple[int, int]:
+        """«/resend»: заново присылает проверяющим всё, что ждёт решения: заявки (карточка с кнопками) и книги (оба PDF и карточка).
+        Нужно, когда проверяющих стало больше: старые заказы они не видели. Возвращает (заявок, книг)."""
+        requests = books = 0
+        for row in self.db.orders_with_status("awaiting_approval"):
+            await self._request_card(row["id"], "🔁 Заявка ждёт решения (отправлена повторно).\n" + self._request_text(row))
+            requests += 1
+        for row in self.db.orders_with_status("in_review"):
+            if row["id"] in self._busy:
+                continue
+            try:
+                story = self._load_story(row["id"])
+                profile = Profile.from_dict(json.loads(row["profile_json"]))
+                await self._send_review(row["id"], story, profile, "🔁 Книга ждёт проверки (отправлена повторно)")
+                books += 1
+            except AppError:
+                log.warning("Заказ %s: повторно отправить на проверку не вышло (нет файлов книги)", row["id"])
+        return requests, books
+
     async def auto_send_due(self) -> int:
         """Если задан REVIEW_AUTO_SEND_HOURS (больше 0), книга, которую никто не проверил, сама уходит клиенту. Возвращает число отправленных."""
         hours = self.settings.review_auto_send_hours
