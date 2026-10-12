@@ -193,7 +193,7 @@ TELEGRAM_BOT_TOKEN, WEBAPP_URL (на Railway берётся из домена с
   (кнопки `req:ok:<id>`, `req:no:<id>`), клиенту `notify_user` «✅ Заявка принята. Пришлём книгу в течение 1–2 часов». Оплата по чеку (`desk.required()`) сама считается принятием: после подтверждения чека заказ идёт сразу.
   `accept_request` → `queued` + `_start`; `decline_request` → `cancelled` с возвратом книги, `rmtree` папки заказа, `scrubbed` анкета, сообщение клиенту. Второй вызов → `ConflictError`.
 - **Шаг 2** (`OrderService._run` → `_hold_for_review`): при `review_books()` вместо `done` ставится `in_review` (`finished_at`, `review_at`), в `finally` фото не удаляются. Администратору: `send_admin_book` дважды (`book.pdf`, `mobile.pdf`; если
-  нет mobile, `ensure_mobile_pdf` его допекает) и `notify_review(order_id, text)` в `ADMIN_CHAT_ID` с кнопками `rev:ok|redo|page|text:<id>`; страницы из списка не нарисовавшихся помечены в карточке.
+  нет mobile, `ensure_mobile_pdf` его допекает) и `notify_review(order_id, text)` в чат заказов с кнопками `rev:ok|redo|page|text:<id>`; страницы из списка не нарисовавшихся помечены в карточке.
   `approve_book` (`done`, `_deliver(admin_copy=False)`, фото стираются), `redo_book` (удаляет всё, кроме фото, `queued` + `_start`; нужны фото на месте, иначе `ConflictError` с `PHOTO_GONE`),
   `start_page_redraw` (`bookgen.redraw_page`: те же референсы `[фото, sheet.jpg]` или `[cover.jpg, фото]` и фото человека, сцена + пометка `IMPORTANT correction...`, при сбое второй заход мягкими словами, старая картинка остаётся;
   затем `bookgen.assemble_pdfs` и снова `_send_review`; работает фоновой задачей), `set_page_text` (`validate_story` и `check_story` с кодами `simple_writer.HARD_CODES`, блокируют только новые нарушения; PDF пересобираются).
@@ -202,5 +202,5 @@ TELEGRAM_BOT_TOKEN, WEBAPP_URL (на Railway берётся из домена с
   (`showHold` в `webapp/app.js`) показывает экран без шкалы с текстами «Заявка отправлена…» / «Книга готова, мы проверяем качество…», опрос продолжается, результат только на `done`. `GET /api/config` отдаёт `manual_checks`.
 - **Напоминания** (`main.review_loop`, раз в `REVIEW_TICK` = 10 минут): `send_reminders` (раз в час на заказ, до 6, карточка приходит снова с кнопками), `auto_send_due` (если `REVIEW_AUTO_SEND_HOURS` > 0).
 - **Тесты**: `tests/test_review_flow.py`. В остальных тестах обе проверки выключены через `build_env(..., approve=False, review=False)` и `make_service` (в базе `approve_requests`/`review_books` = "0").
-- **Известное**: заявка и книга без решения держат у клиента единственный активный заказ; автоматического отказа нет (см. `REVIEW_AUTO_SEND_HOURS` для книг). Заявки идут в чат заказов, а книги на проверку только в `ADMIN_CHAT_ID`:
-  другие администраторы (`ADMIN_EXTRA_IDS`) нажимают кнопки там, где у них есть доступ к чату.
+- **Известное**: заявка и книга без решения держат у клиента единственный активный заказ; автоматического отказа нет (см. `REVIEW_AUTO_SEND_HOURS` для книг). Заявки, PDF и карточки проверки идут в чат заказов (`ORDERS_CHAT_ID`, при сбое или без него в `ADMIN_CHAT_ID`);
+  кнопки нажимают администраторы (`ADMIN_EXTRA_IDS` и владелец), правки страниц и текста принимаются ответом на сообщение бота (ForceReply) и в группе.

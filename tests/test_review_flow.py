@@ -913,17 +913,42 @@ async def test_notifier_sends_the_cards_with_buttons_to_the_right_chats():
     await notifier.notify_request("order0000001", "Заявка <b>с & знаками</b>")
     await notifier.notify_review("order0000001", "Книга готова")
     request, review = sent_messages(session)
-    assert request.chat_id == -100555 and review.chat_id == 777
+    assert request.chat_id == -100555 and review.chat_id == -100555
     assert request.text == "Заявка <b>с & знаками</b>" and request.parse_mode is None          # текст родителей показываем как есть
     assert [b.callback_data for b in request.reply_markup.inline_keyboard[0]] == ["req:ok:order0000001", "req:no:order0000001"]
     assert review.reply_markup.inline_keyboard[0][0].callback_data == "rev:ok:order0000001"
-    # чата заказов нет: заявки идут владельцу; чата владельца нет: проверка невозможна
+    # чата заказов нет: заявки и проверка идут владельцу; нет ни того ни другого: проверка невозможна
     fallback = TelegramNotifier(make_bot(FakeSession()), admin_chat_id=777)
     assert fallback.orders_chat_id == 777 and fallback.can_approve_requests
     nobody = TelegramNotifier(make_bot(FakeSession()), admin_chat_id=None)
     assert not nobody.can_approve_requests and not nobody.can_review_books
     await nobody.notify_request("order0000001", "x")
     await nobody.notify_review("order0000001", "x")
+
+
+async def test_review_files_go_to_the_orders_chat_and_fall_back_to_the_owner(tmp_path):
+    from aiogram.exceptions import TelegramForbiddenError
+    from aiogram.methods import SendDocument, SendMessage
+
+    class GroupGone(FakeSession):                                   # бота выгнали из группы заказов: туда не отправить ничего
+        async def make_request(self, bot, method, timeout=None):
+            if isinstance(method, (SendMessage, SendDocument)) and int(method.chat_id) == -100555:
+                self.calls.append(method)
+                raise TelegramForbiddenError(method=method, message="бота удалили из группы")
+            return await super().make_request(bot, method, timeout)
+
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    ok = FakeSession()
+    notifier = TelegramNotifier(make_bot(ok), admin_chat_id=777, orders_chat_id=-100555)
+    await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
+    await notifier.notify_review("order0000001", "Книга готова")
+    assert [int(c.chat_id) for c in ok.calls] == [-100555, -100555]
+    gone = GroupGone()
+    notifier = TelegramNotifier(make_bot(gone), admin_chat_id=777, orders_chat_id=-100555)
+    await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
+    await notifier.notify_review("order0000001", "Книга готова")
+    assert [int(c.chat_id) for c in gone.calls] == [-100555, 777, -100555, 777]
 
 
 async def test_a_broken_chat_never_breaks_the_order(tmp_path):

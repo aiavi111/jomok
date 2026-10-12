@@ -444,8 +444,12 @@ class TelegramNotifier:
 
     @property
     def can_review_books(self) -> bool:
-        """Книгу на проверку присылаем в чат владельца вместе с двумя PDF."""
-        return self.admin_chat_id is not None
+        """Книгу на проверку присылаем в чат заказов (или владельцу, если его нет) вместе с двумя PDF."""
+        return self.orders_chat_id is not None
+
+    def _work_chats(self) -> list[int]:
+        """Куда слать PDF и карточки проверки: чат заказов, а если он недоступен, личный чат владельца."""
+        return [c for c in dict.fromkeys((self.orders_chat_id, self.admin_chat_id)) if c is not None]
 
     async def notify_request(self, order_id: str, text: str) -> None:
         """Заявка клиента в чат заказов (ORDERS_CHAT_ID, иначе владельцу) с кнопками «Принять и начать» / «Отклонить»."""
@@ -459,15 +463,17 @@ class TelegramNotifier:
             log.warning("Заявка %s не отправлена: %s", order_id, type(e).__name__)
 
     async def notify_review(self, order_id: str, text: str) -> None:
-        """Карточка готовой книги в чат владельца (рядом с двумя PDF) с кнопками проверки."""
-        if self.admin_chat_id is None:
-            log.warning("ADMIN_CHAT_ID не задан: книга %s ждёт проверки, но карточку отправить некуда", order_id)
+        """Карточка готовой книги в чат заказов (рядом с двумя PDF) с кнопками проверки; не вышло — владельцу в личку."""
+        chats = self._work_chats()
+        if not chats:
+            log.warning("Чат заказов и ADMIN_CHAT_ID не заданы: книга %s ждёт проверки, но карточку отправить некуда", order_id)
             return
-        try:
-            await self.bot.send_message(self.admin_chat_id, text[:4000], reply_markup=review_keyboard(order_id),
-                                        parse_mode=None)
-        except Exception as e:  # noqa: BLE001
-            log.warning("Карточка проверки %s не отправлена: %s", order_id, type(e).__name__)
+        for chat in chats:
+            try:
+                await self.bot.send_message(chat, text[:4000], reply_markup=review_keyboard(order_id), parse_mode=None)
+                return
+            except Exception as e:  # noqa: BLE001
+                log.warning("Карточка проверки %s не отправлена в чат %s: %s", order_id, chat, type(e).__name__)
 
     async def notify_payment(self, order_id: str, receipt_path: Path, text: str) -> None:
         """Чек владельцу: фото и кнопки «Подтвердить» / «Отклонить» (и вход в админку)."""
@@ -524,12 +530,13 @@ class TelegramNotifier:
         return False
 
     async def send_admin_book(self, pdf_path: Path, filename: str, caption: str) -> None:
-        if self.admin_chat_id is None:
-            return
-        try:
-            await self._send_document(self.admin_chat_id, pdf_path, filename, caption)
-        except Exception as e:  # noqa: BLE001
-            log.warning("Копия книги администратору не отправлена: %s", type(e).__name__)
+        """PDF для проверки и копии книг: в чат заказов, а если он недоступен, владельцу в личку."""
+        for chat in self._work_chats():
+            try:
+                await self._send_document(chat, pdf_path, filename, caption)
+                return
+            except Exception as e:  # noqa: BLE001
+                log.warning("PDF не отправлен в чат %s: %s", chat, type(e).__name__)
 
     async def notify_order(self, text: str) -> None:
         """Карточка заказа в чат заказов (ORDERS_CHAT_ID, может быть группой); не задан — в чат владельца."""
