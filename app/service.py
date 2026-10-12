@@ -312,6 +312,8 @@ class OrderService:
         return self.image.supports_reference and self.settings.text_provider != "gemini"
 
     def remaining_today(self, user_id: int) -> int:
+        if self.is_admin(user_id):                                 # владелец и админы тестируют без дневного лимита
+            return self.settings.max_books_per_user_per_day
         used = self.db.count_orders_since(user_id, time.time() - DAY, include_errors=False)
         return max(0, self.settings.max_books_per_user_per_day - used)
 
@@ -322,6 +324,8 @@ class OrderService:
         if active:
             raise ConflictError("Ваша книга уже создаётся. Дождитесь, когда она будет готова, — это займёт несколько минут.",
                                 order_id=active["id"])
+        if self.is_admin(user_id):
+            return
         since = now - DAY
         used = self.db.count_orders_since(user_id, since, include_errors=False)
         if used >= limit:

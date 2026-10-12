@@ -184,6 +184,18 @@ async def test_daily_book_limit(tmp_path):
         await e.service.shutdown(); await e.client.close(); e.db.close()
 
 
+async def test_admin_has_no_daily_limit(tmp_path):
+    e = await build_env(tmp_path, max_books_per_user_per_day=1)
+    try:
+        for _ in range(2):                                         # лимит 1, а владелец делает вторую книгу подряд
+            order_id = await e.create(user_id=ADMIN_ID)
+            assert (await e.wait_done(order_id, ADMIN_ID))["status"] == "done"
+        cfg = await (await e.client.get("/api/config", headers=tma(ADMIN_ID))).json()
+        assert cfg["limits"]["remaining_today"] >= 1
+    finally:
+        await e.service.shutdown(); await e.client.close(); e.db.close()
+
+
 async def test_only_one_active_order_per_user(tmp_path):
     e = await build_env(tmp_path, image=ScriptedImage(delay=0.2))
     try:
