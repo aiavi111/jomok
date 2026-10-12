@@ -389,7 +389,7 @@ class OrderService:
         if needs_approval:
             await self._request_card(order_id, self._new_order_text(order_id, user, profile, has_photo, use_credit, False,
                                                                     request_card=True))
-            await self._order_card(f"🆕 Заявка {order_id} ждёт решения. Её видит и принимает только проверяющая.")
+            await self._order_card(f"🆕 Заявка {order_id} ждёт решения. Решение принимают проверяющие, у себя в личке.")
             await self._tell_user(user.id, REQUEST_ACCEPTED_TEXT)
         else:
             if not needs_payment:

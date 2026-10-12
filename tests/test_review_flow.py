@@ -973,7 +973,7 @@ async def test_review_chat_id_gets_the_files_and_the_buttons(monkeypatch):
     await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
     await notifier.notify_review("order0000001", "Книга готова")
     await notifier.notify_request("order0000001", "Заявка")
-    assert [int(c.chat_id) for c in session.calls if isinstance(c, (SendDocument, SendMessage))] == [4242, 4242, 4242]
+    assert [int(c.chat_id) for c in session.calls if isinstance(c, (SendDocument, SendMessage))] == [4242, 777, 4242, 777, 4242, 777]            # проверяющей и владельцу сразу
     # у человека из REVIEW_CHAT_ID есть кнопки проверки, но не права администратора
     settings = Settings(admin_chat_id=777, review_chat_id=4242)
     assert settings.can_review_id(4242) and not settings.is_admin_id(4242)

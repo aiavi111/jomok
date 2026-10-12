@@ -8,8 +8,8 @@
   notify_user(user_id, text)                   — сообщение человеку;
   notify_order(text)                           — отчёт о заказе (новый, заявка ждёт решения, готов) в чат заказов (ORDERS_CHAT_ID, иначе владельцу);
   send_print_offer(user_id, text, whatsapp_url) — предложение печатной версии после книги (кнопка «Заказать в WhatsApp»);
-  notify_request(order_id, text)               — карточка заявки клиента с кнопками «Принять и начать» / «Отклонить» (REVIEW_CHAT_ID, иначе владельцу);
-  notify_review(order_id, text)                — карточка готовой книги с кнопками проверки (REVIEW_CHAT_ID, иначе владельцу, рядом с двумя PDF).
+  notify_request(order_id, text)               — карточка заявки клиента с кнопками «Принять и начать» / «Отклонить» (REVIEW_CHAT_ID и владельцу, не дошло — в чат заказов);
+  notify_review(order_id, text)                — карточка готовой книги с кнопками проверки (REVIEW_CHAT_ID и владельцу, рядом с двумя PDF).
 Флаги can_approve_requests и can_review_books говорят, может ли уведомитель показать эти кнопки человеку. Если нет (бот не подключён),
 ручная проверка заявок и книг не включается, иначе заказы навсегда остались бы без решения.
 """
@@ -27,7 +27,7 @@ class Notifier(Protocol):
         """Отправляет PDF в чат пользователя. False — не получилось (пользователь не запускал бота)."""
 
     async def send_admin_book(self, pdf_path: Path, filename: str, caption: str) -> None:
-        """PDF для проверки и копия книги: REVIEW_CHAT_ID, иначе владельцу (ADMIN_CHAT_ID), иначе в чат заказов."""
+        """PDF для проверки и копия книги: REVIEW_CHAT_ID и владельцу (ADMIN_CHAT_ID), не дошло — в чат заказов."""
 
     async def notify_admin(self, text: str) -> None:
         """Короткое сообщение администратору (сбои, отзывы)."""
