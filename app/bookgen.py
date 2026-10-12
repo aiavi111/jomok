@@ -278,6 +278,18 @@ async def build_book(
 
     # 3. PDF
     await on_status("assembling")
+    report = await assemble_pdfs(story, profile, out_dir, cover_has_title=cover_has_title, mock=mock,
+                                 overlay_mode=overlay_mode, pdf_layout=pdf_layout)
+    return BookResult(story=story, pdf_path=out_dir / "book.pdf", failed_pages=failed, failure_notes=notes,
+                      cover_has_title=cover_has_title, text_styles=report.get("text_styles", []),
+                      min_text_pt=report.get("min_text_pt", 20.0))
+
+
+async def assemble_pdfs(story: Story, profile: Profile, out_dir: Path, *, cover_has_title: bool, mock: bool = False,
+                        overlay_mode: str = DEFAULT_MODE, pdf_layout: str = "spreads") -> dict:
+    """Собирает book.pdf (развороты) и, если pdf_layout == "book", mobile.pdf (страницы по одной) из готовых картинок и текста
+    в папке заказа, и записывает разметку текста для Mini App. Нужна и при первой сборке, и когда человек поправил страницу или текст."""
+    out_dir = Path(out_dir)
     images = {"cover": out_dir / "cover.jpg", **{name: out_dir / f"{name}.jpg" for name in PAGE_IMAGE_NAMES}}
     pdf_path = out_dir / "book.pdf"
     report: dict = {}
@@ -292,6 +304,66 @@ async def build_book(
             log.exception("Не удалось собрать mobile.pdf")
     (out_dir / LAYOUT_META).write_text(json.dumps({k: report.get(k) for k in ("text_sides", "text_styles", "overlay_mode")},
                                                   ensure_ascii=False), encoding="utf-8")
-    return BookResult(story=story, pdf_path=pdf_path, failed_pages=failed, failure_notes=notes,
-                      cover_has_title=cover_has_title, text_styles=report.get("text_styles", []),
-                      min_text_pt=report.get("min_text_pt", 20.0))
+    return report
+
+
+async def redraw_page(
+    story: Story,
+    profile: Profile,
+    image: ImageProvider,
+    out_dir: Path,
+    number: int,
+    *,
+    note: str = "",
+    photo: bytes | None = None,
+    person_photo: bytes | None = None,
+    image_sem: asyncio.Semaphore | None = None,
+) -> None:
+    """Перерисовывает ОДНУ страницу готовой книги (1..PAGES): те же образцы, что были у книги (фото ребёнка, лист героев
+    sheet.jpg или обложка, фото близкого человека), сцена та же, плюс пометка человека. Новая картинка заменяет p{number}.jpg
+    только если получилась: при сбое старая остаётся на месте и бросается ProviderError. PDF здесь не пересобираются (assemble_pdfs)."""
+    if not 1 <= number <= len(story.pages):
+        raise ValueError(f"Страницы {number} в книге нет")
+    out_dir = Path(out_dir)
+    sem = image_sem or asyncio.Semaphore(3)
+    page = story.pages[number - 1]
+    note = " ".join((note or "").split())
+    base_scene = page.scene
+    if note:
+        base_scene = (f"{page.scene} IMPORTANT correction requested by the editor (apply it exactly, keep everything else): {note}")
+
+    def trial_story(scene: str) -> Story:
+        changed = page.__class__(text=page.text, scene=scene)
+        fields = {f: getattr(story, f) for f in story.__dataclass_fields__}
+        fields["pages"] = tuple(changed if k == number - 1 else p for k, p in enumerate(story.pages))
+        return Story(**fields)
+
+    use_photo = bool(photo) and image.supports_reference
+    use_parent = bool(person_photo) and image.supports_reference and person_photo_family(story)
+    sheet_path, cover_path = out_dir / "sheet.jpg", out_dir / "cover.jpg"
+    sheet_bytes = sheet_path.read_bytes() if image.supports_reference and sheet_path.exists() else b""
+    identity_refs = ([photo] if use_photo else []) + ([sheet_bytes] if sheet_bytes else [])
+    page_refs: list[bytes] | None = None
+    if image.supports_reference and sheet_bytes:
+        page_refs = identity_refs
+    elif image.supports_reference and cover_path.exists():
+        page_refs = [cover_path.read_bytes()] + ([photo] if use_photo else [])
+
+    async def draw(scene: str, label: str) -> bytes:
+        with_parent = use_parent and person_in_scene(story, scene)
+        refs = ((page_refs or []) + [person_photo]) if with_parent else page_refs
+        prompt = build_page_prompt(trial_story(scene), profile, number, has_refs=bool(page_refs), person_ref=with_parent,
+                                   photo_ref=use_photo)
+        return await _draw_with_retries(image, prompt, refs, label, sem, PAGE_SIZE, PAGE_QUALITY)
+
+    try:
+        data = await draw(base_scene, f"Страница {number} (правка)")
+    except ProviderError as e:
+        soft = soften_scene(base_scene)
+        if e.fatal or soft == base_scene:
+            raise
+        log.warning("Страница %s (правка) не нарисовалась, пробую мягкими словами: %s", number, e.message)
+        data = await draw(soft, f"Страница {number} (правка, мягко)")
+    tmp = out_dir / f"p{number}.jpg.tmp"                  # подмена целиком: опрос из приложения не прочтёт половину файла
+    tmp.write_bytes(data)
+    tmp.replace(out_dir / f"p{number}.jpg")

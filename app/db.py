@@ -9,7 +9,8 @@ from pathlib import Path
 
 ACTIVE_STATUSES = ("queued", "writing", "drawing", "assembling")
 PAYMENT_STATUSES = ("awaiting_payment", "payment_review")      # ждём оплату / проверяем чек
-BLOCKING_STATUSES = ACTIVE_STATUSES + PAYMENT_STATUSES          # у человека может быть только один такой заказ
+REVIEW_STATUSES = ("awaiting_approval", "in_review")             # заявка ждёт решения человека / готовая книга ждёт проверки
+BLOCKING_STATUSES = ACTIVE_STATUSES + PAYMENT_STATUSES + REVIEW_STATUSES    # у человека может быть только один такой заказ
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -69,12 +70,14 @@ CREATE TABLE IF NOT EXISTS access(
 
 _ORDER_COLUMNS = {
     "status", "title", "paid", "payment_charge_id", "error", "error_detail", "delivered",
-    "files_deleted", "finished_at", "profile_json", "receipt_at", "pay_note", "paid_at",
+    "files_deleted", "finished_at", "profile_json", "receipt_at", "pay_note", "paid_at", "review_at", "reminders",
 }
 # колонки, добавленные после первой версии: старая база на сервере получит их при запуске
 # credit_used: 1 — за заказ списана книга со счёта (возвращается, если заказ закончился ошибкой)
+# review_at: когда заявка или книга начала ждать решения (и когда админу напомнили в последний раз); reminders: сколько напоминаний уже было
 _ORDER_MIGRATIONS = {"receipt_at": "REAL", "pay_note": "TEXT", "paid_at": "REAL",
-                     "credit_used": "INTEGER NOT NULL DEFAULT 0"}
+                     "credit_used": "INTEGER NOT NULL DEFAULT 0", "review_at": "REAL",
+                     "reminders": "INTEGER NOT NULL DEFAULT 0"}
 
 
 class Database:
@@ -144,9 +147,9 @@ class Database:
                 if cur.rowcount != 1:
                     return False
             c.execute(
-                """INSERT INTO orders(id, user_id, status, profile_json, paid, credit_used, created_at, updated_at)
-                   VALUES(?,?,?,?,?,?,?,?)""",
-                (order_id, user_id, status, profile_json, 1 if paid else 0, 1 if use_credit else 0, now, now),
+                """INSERT INTO orders(id, user_id, status, profile_json, paid, credit_used, created_at, updated_at, review_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (order_id, user_id, status, profile_json, 1 if paid else 0, 1 if use_credit else 0, now, now, now),
             )
         return True
 
@@ -164,6 +167,25 @@ class Database:
             c.execute(f"UPDATE orders SET {sets} WHERE id=?", (*fields.values(), order_id))
             if fields.get("status") in ("error", "cancelled"):
                 self._refund_credit(c, order_id)
+
+    def transition(self, order_id: str, expected: tuple[str, ...], **fields) -> bool:
+        """Меняет заказ, только если он сейчас в одном из статусов expected (проверка и запись одной транзакцией).
+        Так двойное нажатие кнопки не делает дело дважды: второй вызов получает False. Статусы «error» и «cancelled»
+        возвращают списанную книгу, как и update_order."""
+        bad = set(fields) - _ORDER_COLUMNS
+        if bad:
+            raise ValueError(f"Неизвестные поля заказа: {bad}")
+        fields["updated_at"] = time.time()
+        sets = ", ".join(f"{k}=?" for k in fields)
+        marks = ",".join("?" * len(expected))
+        with self._tx() as c:
+            cur = c.execute(f"UPDATE orders SET {sets} WHERE id=? AND status IN ({marks})",
+                            (*fields.values(), order_id, *expected))
+            if cur.rowcount != 1:
+                return False
+            if fields.get("status") in ("error", "cancelled"):
+                self._refund_credit(c, order_id)
+        return True
 
     @staticmethod
     def _refund_credit(conn: sqlite3.Connection, order_id: str) -> bool:
@@ -216,8 +238,21 @@ class Database:
         return self._all(f"SELECT * FROM orders WHERE status IN ({marks}) AND paid=1", ACTIVE_STATUSES)
 
     def orders_with_files_older_than(self, ts: float) -> list[sqlite3.Row]:
-        return self._all("SELECT * FROM orders WHERE created_at<? AND files_deleted=0 AND status NOT IN "
-                         "('queued','writing','drawing','assembling','awaiting_payment','payment_review')", (ts,))
+        """Заказы, у которых пора удалить файлы. Те, что ещё идут, ждут оплату или решение человека, не трогаем."""
+        marks = ",".join("?" * len(BLOCKING_STATUSES))
+        return self._all(f"SELECT * FROM orders WHERE created_at<? AND files_deleted=0 AND status NOT IN ({marks})",
+                         (ts, *BLOCKING_STATUSES))
+
+    def orders_to_remind(self, waiting_since: float, max_reminders: int) -> list[sqlite3.Row]:
+        """Заявки и книги, которые ждут решения дольше часа (review_at старше waiting_since) и которым напомнили меньше max_reminders раз."""
+        marks = ",".join("?" * len(REVIEW_STATUSES))
+        return self._all(f"SELECT * FROM orders WHERE status IN ({marks}) AND review_at<=? AND reminders<? ORDER BY review_at ASC",
+                         (*REVIEW_STATUSES, waiting_since, max_reminders))
+
+    def books_in_review_since(self, finished_before: float) -> list[sqlite3.Row]:
+        """Книги на проверке, которые готовы давно (для автоматической отправки)."""
+        return self._all("SELECT * FROM orders WHERE status='in_review' AND finished_at<=? ORDER BY finished_at ASC",
+                         (finished_before,))
 
     # ------------------------------------------------------------------ оплата и настройки
     def orders_with_status(self, status: str, *, limit: int = 100) -> list[sqlite3.Row]:

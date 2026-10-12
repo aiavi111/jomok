@@ -430,6 +430,7 @@ h1.q { margin: 20px 0 8px; font-size: 28px; line-height: 1.15; font-weight: 800;
 .wait h1 { font-size: 27px; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; }
 .tip { margin: 8px 0 18px; min-height: 48px; color: var(--muted); font-size: 16px; font-weight: 500; transition: opacity .35s; }
 .tip.fade { opacity: 0; }
+.hold .tip { margin: 12px 0 22px; min-height: 0; color: var(--fg); font-size: 18px; line-height: 1.45; font-weight: 600; }
 .bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; margin-bottom: 22px; }
 .bar > i { display: block; width: 100%; height: 100%; border-radius: 4px; background: var(--brand); transform: scaleX(var(--p, .02)); transform-origin: left center; transition: transform .7s var(--ease); }
 .stages { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 2px; }

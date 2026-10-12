@@ -286,7 +286,7 @@
   const S = {
     cfg: null, screen: 'boot', steps: [], idx: 0, returnToSummary: false, header: null,
     a: freshAnswers(), photo: null, photoUrl: null, person: null, personUrl: null,
-    orderId: null, order: null, pollId: 0, pollFails: 0, stage: 0, tipTimer: null, tipIndex: 0,
+    orderId: null, order: null, hold: null, pollId: 0, pollFails: 0, stage: 0, tipTimer: null, tipIndex: 0,
     fb: { rating: null, would_pay: null, comment: '', sent: false },
     adminTab: 'checks', admin: null, adminTimer: null, payTimer: null, payId: 0,
     inv: { credits: 1, note: '', list: null, error: '', fresh: null }, closedWa: null,
@@ -423,7 +423,7 @@
     const c = S.cfg;
     const left = c.limits.remaining_today;
     const pills = [];
-    const second = c.mock ? 'В тестовом режиме — быстрее минуты' : 'Обычно 5–15 минут, приложение можно закрыть';
+    const second = c.mock ? 'В тестовом режиме — быстрее минуты' : c.manual_checks ? 'Обычно 1–2 часа, приложение можно закрыть' : 'Обычно 5–15 минут, приложение можно закрыть';
     const notice = c.privacy_warning
       ? '<div class="notice warn" role="note">' + icon('warn') + '<span>' + esc(c.privacy_warning) + '</span></div>' : '';
     const closedMode = !!(c.access && c.access.closed);
@@ -1065,7 +1065,7 @@
       S.cfg.limits.remaining_today = Math.max(0, S.cfg.limits.remaining_today - 1);
       if (S.cfg.access && typeof S.cfg.access.credits === 'number' && !isAdmin()) S.cfg.access.credits = Math.max(0, S.cfg.access.credits - 1);
       if (res.status === 'awaiting_payment') { showPay(res.order_id); return; }
-      showWait(res.order_id);
+      showWait(res.order_id, res.status);
     } catch (e) {
       if (e.status === 403 && e.code === 'closed') {
         haptic.bad();
@@ -1110,16 +1110,39 @@
     for (let i = have; i > n; i--) { const row = $('.prow[data-k="p' + i + '"]', list); if (row) row.remove(); }
   }
 
-  function showWait(orderId) {
+  const REVIEW_ETA = 'Мы сами проверим книгу перед отправкой. PDF придёт в чат, обычно в течение 1–2 часов. Приложение можно закрыть.';
+  /* Заявка ждёт решения человека / готовая книга ждёт проверки: без шкалы и процентов, только понятный текст */
+  const HOLD = {
+    awaiting_approval: { title: 'Заявка отправлена', text: 'Мы проверим её и начнём делать книгу. Обычно ответ в течение 1–2 часов, приложение можно закрыть.',
+      note: 'Когда заявку примут, книга начнёт создаваться. Готовую книгу мы пришлём в чат с ботом.' },
+    in_review: { title: 'Книга готова', text: 'Мы проверяем качество. Пришлём в течение 1–2 часов.',
+      note: 'PDF придёт в чат с ботом. Приложение можно закрыть.' },
+  };
+
+  function showHold(o) {
+    if (S.hold === o.status || !HOLD[o.status]) return;
+    S.hold = o.status;
+    clearInterval(S.tipTimer);
+    S.tipTimer = null;
+    const h = HOLD[o.status];
+    app.innerHTML = '<section class="screen wait hold" role="status">' +
+      '<div class="scene">' + waitArt() + '</div>' +
+      '<h1>' + esc(h.title) + '</h1><p class="tip" id="tip">' + esc(h.text) + '</p>' +
+      '<p class="stay">' + icon('clock') + '<span>' + esc(h.note) + '</span></p><div id="conn"></div></section>';
+    window.scrollTo(0, 0);
+  }
+
+  function showWait(orderId, status) {
     leaveScreen();
     S.screen = 'wait';
+    S.hold = null;
     S.orderId = orderId;
     S.pollFails = 0;
     S.stage = 0;
     S.tipIndex = 0;
     setBackButton(false);
     setHeader();
-    const eta = S.cfg.mock ? 'В тестовом режиме это быстрее минуты.' : 'Обычно 5–15 минут. Можно закрыть приложение — PDF придёт в чат.';
+    const eta = S.cfg.mock ? 'В тестовом режиме это быстрее минуты.' : S.cfg.manual_checks ? REVIEW_ETA : 'Обычно 5–15 минут. Можно закрыть приложение — PDF придёт в чат.';
     const rows = rowHtml('cover', 'Обложка') + Array.from({ length: pagesCount() }, (_, i) => rowHtml('p' + (i + 1), 'Страница ' + (i + 1))).join('');
     app.innerHTML = '<section class="screen wait">' +
       '<div class="scene">' + waitArt() + '</div>' +
@@ -1129,6 +1152,7 @@
       '<p class="stay">' + icon('clock') + '<span>' + eta + '</span></p>' +
       '<div id="conn"></div><h2 class="sub">Страницы появляются по мере готовности</h2><ul class="preview">' + rows + '</ul></section>';
     if (!reduceMotion) S.tipTimer = setInterval(rotateTip, 4600);
+    if (status && HOLD[status]) showHold({ status });          // заявка только что отправлена: сразу понятный экран, без мигания
     S.pollId += 1;
     poll(S.pollId);
   }
@@ -1163,7 +1187,9 @@
         if (order.status === 'cancelled') { await refreshConfig(); showWelcome(); return; }
         if (order.status === 'done') { showResult(order); return; }
         if (order.status === 'error') { showOrderError(order); return; }
-        updateWait(order);
+        if (order.status === 'awaiting_approval' || order.status === 'in_review') showHold(order);
+        else if (S.hold) { showWait(S.orderId); return; }             // заявку приняли: рисуем обычный экран ожидания заново
+        else updateWait(order);
       } catch (e) {                // неожиданный ответ сервера не должен остановить опрос: пробуем ещё раз
         S.pollFails += 1;
         if (S.pollFails > 8) { showFatal(e, () => boot()); return; }
@@ -1185,6 +1211,11 @@
     });
     const first = $('.stages li[data-stage="0"] .lbl');
     if (first) first.textContent = p.stage === -1 ? 'Жду очереди…' : STAGES[0][1];
+    if (o.review) {                       // книгу сначала проверит человек: страницы по мере готовности не показываем
+      const pv = $('.preview'); if (pv) pv.remove();
+      const sub = $('h2.sub'); if (sub) sub.remove();
+      const stay = $('.stay span'); if (stay && stay.textContent !== REVIEW_ETA) stay.textContent = REVIEW_ETA;
+    }
     // обложка и страницы: текст сразу после написания, картинка — когда нарисована
     if (o.pages && o.pages.length) syncRows(o.pages.length);
     fillRow('cover', o.cover_url, o.title ? o.title : null);
@@ -1623,6 +1654,7 @@
   }
 
   const closedOn = (st) => st.closed === undefined || st.closed === null ? true : !!st.closed;
+  const flagOn = (st, key) => st[key] === undefined || st[key] === null ? true : !!st[key];       // проверка заявок и книг по умолчанию включена
 
   async function loadInvites() {
     try {
@@ -1644,7 +1676,8 @@
     app.innerHTML = '<section class="screen admin"><header class="a-head"><h1>' + icon('admin') + 'Админка</h1>' +
       '<p>' + (closedOn(a.settings) ? 'Бот <b class="on">закрыт</b>: книги выдаются по личным ссылкам' : 'Бот <b class="off">открыт для всех</b>') + '</p>' +
       '<p>' + (a.settings.enabled && a.settings.has_qr ? 'Приём оплаты <b class="on">включён</b>' : 'Приём оплаты <b class="off">выключен</b>' + (closedOn(a.settings) ? '' : ': книги сейчас бесплатные')) +
-      ' · подтверждено за сутки: ' + a.paid_today + '</p></header>' +
+      ' · подтверждено за сутки: ' + a.paid_today + '</p>' +
+      (a.waiting && (a.waiting.requests || a.waiting.books) ? '<p>Ждут вашего решения: заявок <b>' + a.waiting.requests + '</b>, книг <b>' + a.waiting.books + '</b>. Кнопки — в чате с ботом.</p>' : '') + '</header>' +
       '<div class="tabs" role="tablist">' + tabs + '</div><div class="a-body">' +
       (S.adminTab === 'checks' ? adminChecks(a) : S.adminTab === 'invites' ? adminInvites() : adminSettings(a.settings)) + '</div></section>';
     if (quiet) window.scrollTo(0, keep); else window.scrollTo(0, 0);
@@ -1780,6 +1813,10 @@
     });
   }
 
+  function checkHint(st, key) {        // переключатель включён, но бот не может показать кнопки: объясняем, почему проверки нет
+    return flagOn(st, key) && st[key + '_active'] === false ? ' Сейчас не работает: нужен бот и ADMIN_CHAT_ID в настройках сервера.' : '';
+  }
+
   function adminSettings(st) {
     const qr = st.qr_url
       ? '<div class="qr-card small"><img class="qr" src="' + esc(st.qr_url) + '" alt="Текущий QR-код" width="180" height="180"></div>'
@@ -1787,6 +1824,10 @@
     return '<div class="set">' +
       '<div class="switch-row"><div class="t"><b id="sw-closed">' + icon('lock') + 'Закрытый бот</b><p>Книги создают только по личным ссылкам из вкладки «Ссылки». Вам доступ открыт всегда.</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-closed" aria-checked="' + closedOn(st) + '" data-act="closed-switch"></button></div>' +
+      '<div class="switch-row"><div class="t"><b id="sw-approve">' + icon('done') + 'Проверять заявки</b><p>Книга начнёт создаваться, только когда вы нажмёте «Принять и начать» в чате. Ваши собственные книги стартуют сразу.' + checkHint(st, 'approve_requests') + '</p></div>' +
+      '<button type="button" class="switch" role="switch" aria-labelledby="sw-approve" aria-checked="' + flagOn(st, 'approve_requests') + '" data-act="approve-switch"></button></div>' +
+      '<div class="switch-row"><div class="t"><b id="sw-review">' + icon('book') + 'Проверять книги</b><p>Готовая книга сначала приходит вам в чат, клиенту она уходит после кнопки «Отправить клиенту». Можно перерисовать страницу или поправить текст.' + checkHint(st, 'review_books') + '</p></div>' +
+      '<button type="button" class="switch" role="switch" aria-labelledby="sw-review" aria-checked="' + flagOn(st, 'review_books') + '" data-act="review-switch"></button></div>' +
       '<div class="switch-row"><div class="t"><b id="sw-pay">' + icon('qr') + 'Приём оплаты по QR</b><p>' + (st.has_qr ? 'Когда включено, книга создаётся только после вашего подтверждения.' : 'Сначала загрузите QR-код ниже.') + '</p></div>' +
       '<button type="button" class="switch" role="switch" aria-labelledby="sw-pay" aria-checked="' + !!st.enabled + '" data-act="pay-switch"' + (st.has_qr ? '' : ' disabled') + '></button></div>' +
       '<h2 class="a-sub">Ваш QR-код</h2>' + qr +
@@ -1836,7 +1877,7 @@
     try {
       const st = S.admin.settings;
       const res = await adminAction('/api/admin/settings', {
-        closed: closedOn(st), whatsapp: document.getElementById('set-wa').value.trim(), print_price: document.getElementById('set-print').value,
+        closed: closedOn(st), approve_requests: flagOn(st, 'approve_requests'), review_books: flagOn(st, 'review_books'), whatsapp: document.getElementById('set-wa').value.trim(), print_price: document.getElementById('set-print').value,
         enabled: st.enabled, price_text: document.getElementById('set-price').value, instructions: document.getElementById('set-text').value,
       });
       S.admin.settings = Object.assign({}, S.admin.settings, res);
@@ -1916,6 +1957,8 @@
     'open-admin': () => { haptic.tap(); showAdmin('checks'); },
     'admin-tab': (el) => { S.adminTab = el.dataset.tab; haptic.select(); renderAdmin(); if (S.adminTab === 'invites') loadInvites(); },
     'closed-switch': (el) => { const st = S.admin.settings; st.closed = !closedOn(st); el.setAttribute('aria-checked', String(st.closed)); haptic.select(); },
+    'approve-switch': (el) => { const st = S.admin.settings; st.approve_requests = !flagOn(st, 'approve_requests'); el.setAttribute('aria-checked', String(st.approve_requests)); haptic.select(); },
+    'review-switch': (el) => { const st = S.admin.settings; st.review_books = !flagOn(st, 'review_books'); el.setAttribute('aria-checked', String(st.review_books)); haptic.select(); },
     'inv-minus': () => { S.inv.credits = Math.max(1, S.inv.credits - 1); haptic.select(); renderAdmin(true); },
     'inv-plus': () => { S.inv.credits = Math.min(5, S.inv.credits + 1); haptic.select(); renderAdmin(true); },
     'inv-create': createInvite,

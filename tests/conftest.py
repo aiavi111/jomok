@@ -98,8 +98,13 @@ def tma(user_id: int = 42, **kw) -> dict:
 
 
 class FakeNotifier:
+    can_approve_requests = True          # как настоящий бот: умеет показать кнопки заявки и проверки книги
+    can_review_books = True
+
     def __init__(self, deliver: bool = True):
         self.deliver = deliver
+        self.requests: list[tuple] = []      # (order_id, text) заявок с кнопками
+        self.reviews: list[tuple] = []       # (order_id, text) карточек проверки книги
         self.books: list[tuple] = []
         self.admin_books: list[tuple] = []
         self.admin_texts: list[str] = []
@@ -125,6 +130,12 @@ class FakeNotifier:
 
     async def send_print_offer(self, user_id, text, whatsapp_url) -> None:
         self.print_offers.append((user_id, text, whatsapp_url))
+
+    async def notify_request(self, order_id, text) -> None:
+        self.requests.append((order_id, text))
+
+    async def notify_review(self, order_id, text) -> None:
+        self.reviews.append((order_id, text))
 
 
 class PlainNotifier:
@@ -166,12 +177,16 @@ class Env:
 
 
 async def build_env(tmp_path: Path, *, text=None, image=None, notifier=None, closed: bool = False,
-                    **settings_over) -> Env:
+                    approve: bool = False, review: bool = False, **settings_over) -> Env:
     """closed=False: бот открыт для всех (как до личных ссылок), так проще проверять остальное.
-    closed=True: настоящий режим по умолчанию, создавать книги могут только владелец и те, у кого есть книги."""
+    closed=True: настоящий режим по умолчанию, создавать книги могут только владелец и те, у кого есть книги.
+    approve / review: ручная проверка заявки и готовой книги. В настоящей работе обе включены по умолчанию, а в тестах
+    выключены, чтобы заказы шли и доставлялись сразу (проверка заявок и книг проверяется в tests/test_review_flow.py)."""
     settings = make_settings(tmp_path, **settings_over)
     db = Database(settings.data_dir / "test.sqlite3")
     db.set_setting("closed_bot", "1" if closed else "0")
+    db.set_setting("approve_requests", "1" if approve else "0")
+    db.set_setting("review_books", "1" if review else "0")
     notifier = notifier or FakeNotifier()
     service = OrderService(settings, db, text or MockTextProvider(), image or MockImageProvider(), notifier,
                            FreePayment(), load_or_create_secret(settings.data_dir))
@@ -181,11 +196,15 @@ async def build_env(tmp_path: Path, *, text=None, image=None, notifier=None, clo
     return Env(settings, db, service, notifier, client)
 
 
-def make_service(tmp_path: Path, *, closed: bool = True, notifier=None, **settings_over) -> OrderService:
-    """Сервис без веб-сервера (для тестов бота и базы). По умолчанию бот закрыт, как в настоящей работе."""
+def make_service(tmp_path: Path, *, closed: bool = True, notifier=None, approve: bool = False, review: bool = False,
+                 **settings_over) -> OrderService:
+    """Сервис без веб-сервера (для тестов бота и базы). По умолчанию бот закрыт, как в настоящей работе;
+    ручная проверка заявок и книг выключена (approve / review включают её)."""
     settings = make_settings(tmp_path, **settings_over)
     db = Database(settings.data_dir / "service.sqlite3")
     db.set_setting("closed_bot", "1" if closed else "0")
+    db.set_setting("approve_requests", "1" if approve else "0")
+    db.set_setting("review_books", "1" if review else "0")
     return OrderService(settings, db, MockTextProvider(), MockImageProvider(), notifier or FakeNotifier(),
                         FreePayment(), load_or_create_secret(settings.data_dir))
 

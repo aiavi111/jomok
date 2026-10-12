@@ -9,18 +9,19 @@ import re
 import secrets
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
 from .auth import TgUser
-from .bookgen import PAGE_IMAGE_NAMES, BookResult, build_book, read_cover_meta, read_layout_meta
+from .bookgen import PAGE_IMAGE_NAMES, BookResult, assemble_pdfs, build_book, read_cover_meta, read_layout_meta, redraw_page
 from .readpdf import build_mobile_pdf
 from .bookinfo import book_labels
 from .config import Settings
 from .declension import genitive_ru
-from .db import ACTIVE_STATUSES, PAYMENT_STATUSES, Database
+from .db import ACTIVE_STATUSES, PAYMENT_STATUSES, REVIEW_STATUSES, Database
 from .errors import (AppError, BusyError, ClosedError, ConflictError, LimitError, NotFoundError, ProviderError,
-                     StoryError, ValidationError)
+                     StoryError, StoryValidationError, ValidationError)
 from .paydesk import PaymentDesk
 from .imaging import hex_color, band_color, prepare_photo
 from .layout import text_side
@@ -30,8 +31,10 @@ from .notify import Notifier
 from .payments import PaymentProvider
 from .profile import Profile
 from .providers.base import ImageProvider, TextProvider
-from .story import PAGES, Story
+from .simple_writer import HARD_CODES
+from .story import PAGES, Story, validate_story
 from .textutil import clean_text, human_wait, ru_plural
+from .writer import check_story, new_violations, violations_text
 
 log = logging.getLogger(__name__)
 
@@ -64,10 +67,26 @@ ACCESS_MESSAGE = "Здравствуйте! Хочу получить ссылк
 # --- обещание про фото: удаляем сразу после создания книги и в любом случае не позже чем через сутки
 PHOTO_TTL = DAY
 CLEANUP_PERIOD = 60 * 60          # как часто main.py запускает cleanup()
+REVIEW_TICK = 10 * 60             # как часто main.py смотрит, не пора ли напомнить о заявке или книге без решения
 ORDER_TIMEOUT = 30 * 60        # на весь заказ (текст и картинки) не больше 30 минут: подвисший сервис не держит клиента часами
 RESEND_PAUSE = 45              # секунд между повторными отправками одной книги
 MAX_FAILED_PAGES = 2           # больше двух ненарисованных страниц (или обложка) = заказ не удался, книга возвращается
 PHOTO_PURGE_AFTER = PHOTO_TTL - CLEANUP_PERIOD   # режем с запасом на период уборки: фото живёт не дольше суток
+
+# --- ручная проверка: заявку принимает человек, готовую книгу смотрит человек
+APPROVE_KEY = "approve_requests"         # в таблице settings: "1" включено (по умолчанию из APPROVE_REQUESTS), "0" выключено
+REVIEW_KEY = "review_books"              # то же для проверки готовой книги (REVIEW_BOOKS)
+REMIND_EVERY = 60 * 60                   # админу напоминают о заявке или книге без решения раз в час
+MAX_REMINDERS = 6                        # и не больше шести раз на один заказ
+PENDING_TTL = 15 * 60                    # сколько бот ждёт от админа пометку или новый текст страницы
+KEEP_ON_REDO = ("photo.jpg", PERSON_FILE, "receipt.jpg")    # при «Сделать заново» остаются фото (и чек), всё остальное рисуется заново
+REQUEST_ACCEPTED_TEXT = "✅ Заявка принята. Пришлём книгу в течение 1–2 часов"
+REQUEST_DECLINED_TEXT = "К сожалению, заявку не получилось принять. Книга возвращена на ваш счёт, напишите нам."
+REQUEST_DECLINED_FREE_TEXT = "К сожалению, заявку не получилось принять. Напишите нам."
+REVIEW_FAILED_TEXT = ("К сожалению, книга пока не получилась. Эта попытка не засчитана: книга осталась на вашем счёте. "
+                      "Создайте её ещё раз чуть позже или напишите нам.")
+PHOTO_GONE = ("Фото уже удалено: мы храним его не дольше 23 часов. Без фото {what} не получится похожей на ребёнка. "
+              "Можно отправить книгу как есть, исправить текст или попросить клиента сделать заявку заново.")
 
 GENERIC_ERROR = ("Не получилось создать книгу: на нашей стороне произошёл сбой. "
                  "Эта попытка не засчитана — попробуйте ещё раз через несколько минут.")
@@ -102,6 +121,15 @@ def _parse_flag(value, field: str, label: str) -> bool:
     raise ValidationError(f"{label}: включено или выключено.", field=field)
 
 
+@dataclass
+class PendingEdit:
+    """Бот спросил у администратора пометку к странице (kind="page") или новый текст страницы (kind="text") и ждёт ответ."""
+    kind: str
+    order_id: str
+    page: int
+    until: float
+
+
 class OrderService:
     def __init__(self, settings: Settings, db: Database, text: TextProvider, image: ImageProvider,
                  notifier: Notifier, payment: PaymentProvider, link_secret: bytes, desk: PaymentDesk | None = None):
@@ -119,9 +147,12 @@ class OrderService:
         self.gen_sem = asyncio.Semaphore(settings.max_parallel_generations)   # книг одновременно на весь сервис
         self.image_sem = asyncio.Semaphore(settings.image_concurrency)         # картинок одновременно
         self._tasks: set[asyncio.Task] = set()
+        self._busy: set[str] = set()                                         # заказы, которые сейчас правит человек (перерисовка, текст, отправка)
+        self._pending: dict[tuple[int, int], PendingEdit] = {}               # (чат, администратор) -> что бот ждёт следующим сообщением
 
     # ------------------------------------------------------------------ запуск и остановка
     def recover(self) -> None:
+        # заявки на проверке (awaiting_approval) и готовые книги на проверке (in_review) не трогаем: это не ошибка, они ждут человека
         n = self.db.interrupt_unfinished(INTERRUPTED, "Сервер перезапущен во время генерации")
         if n:
             log.warning("Недописанных заказов помечено ошибкой после перезапуска: %s", n)
@@ -157,6 +188,26 @@ class OrderService:
 
     def set_closed(self, value: bool) -> None:
         self.db.set_setting(CLOSED_KEY, "1" if value else "0")
+
+    # ------------------------------------------------------------------ переключатели ручной проверки
+    def _switch_raw(self, key: str, default: bool) -> bool:
+        value = self.db.get_setting(key)
+        return default if value is None else value != "0"
+
+    def approve_requests_setting(self) -> bool:
+        """Что выбрал владелец (переключатель в админке или APPROVE_REQUESTS), без учёта того, умеет ли бот показать кнопки."""
+        return self._switch_raw(APPROVE_KEY, self.settings.approve_requests)
+
+    def review_books_setting(self) -> bool:
+        return self._switch_raw(REVIEW_KEY, self.settings.review_books)
+
+    def approve_requests(self) -> bool:
+        """Заявку клиента сначала принимает человек. Без бота с кнопками выключено: иначе заказ никто бы не принял."""
+        return self.approve_requests_setting() and bool(getattr(self.notifier, "can_approve_requests", False))
+
+    def review_books(self) -> bool:
+        """Готовую книгу сначала проверяет человек. Без бота с кнопками выключено."""
+        return self.review_books_setting() and bool(getattr(self.notifier, "can_review_books", False))
 
     def access_state(self, user_id: int) -> dict:
         """granted: можно ли прямо сейчас создать книгу (владелец, открытый режим или остались книги)."""
@@ -318,17 +369,25 @@ class OrderService:
         if parent:
             (odir / PERSON_FILE).write_bytes(parent)
         needs_payment = self.desk.required() and not check.paid and not use_credit and not self.is_admin(user.id)   # по ссылке и владелец уже не платят чеком
+        # заявка сначала ждёт человека; у владельца и у оплаченного по чеку заказа этого шага нет (чек уже подтвердил человек)
+        needs_approval = not needs_payment and not self.is_admin(user.id) and self.approve_requests()
+        status = "awaiting_payment" if needs_payment else "awaiting_approval" if needs_approval else "queued"
         created = self.db.create_order(order_id, user.id, json.dumps(profile.to_dict(), ensure_ascii=False),
-                                       paid=check.paid, status="awaiting_payment" if needs_payment else "queued",
+                                       paid=check.paid, status=status,
                                        use_credit=use_credit)       # проверка и списание книги — одной транзакцией
         if not created:
             shutil.rmtree(odir, ignore_errors=True)
             raise self.closed_error()
-        if not needs_payment:
-            self._start(order_id)
-        await self._order_card(self._new_order_text(order_id, user, profile, has_photo, use_credit, needs_payment))
-        log.info("Заказ %s создан (возраст %s, язык %s, место %s, ценность %s, фото %s, оплата нужна: %s)",
-                 order_id, profile.age, profile.language, profile.place, profile.value, has_photo, needs_payment)
+        if needs_approval:
+            await self._request_card(order_id, self._new_order_text(order_id, user, profile, has_photo, use_credit, False,
+                                                                    request_card=True))
+            await self._tell_user(user.id, REQUEST_ACCEPTED_TEXT)
+        else:
+            if not needs_payment:
+                self._start(order_id)
+            await self._order_card(self._new_order_text(order_id, user, profile, has_photo, use_credit, needs_payment))
+        log.info("Заказ %s создан (возраст %s, язык %s, место %s, ценность %s, фото %s, статус: %s)",
+                 order_id, profile.age, profile.language, profile.place, profile.value, has_photo, status)
         return order_id
 
     @staticmethod
@@ -340,23 +399,36 @@ class OrderService:
             raise ValidationError("Фото близкого человека: " + e.message[0].lower() + e.message[1:], field="person_photo")
 
     def _new_order_text(self, order_id: str, user: TgUser, profile: Profile, has_photo: bool, use_credit: bool,
-                        needs_payment: bool) -> str:
-        """Карточка нового заказа для владельца: кто заказал и что (без лишних данных ребёнка)."""
+                        needs_payment: bool, *, request_card: bool = False) -> str:
+        """Карточка нового заказа для владельца: кто заказал и что (без лишних данных ребёнка).
+        request_card=True: заявка, которая ждёт решения; в карточку добавлено пожелание родителей."""
         who = self.db.get_user(user.id)
         name = (who["first_name"] if who and who["first_name"] else user.first_name or "Без имени")
         username = (who["username"] if who and who["username"] else getattr(user, "username", None))
         gender = "девочка" if profile.gender == "girl" else "мальчик"
-        lines = [f"🧾 Новый заказ {order_id}",
+        lines = [f"{'🧾 Новая заявка' if request_card else '🧾 Новый заказ'} {order_id}",
                  f"От: {name}" + (f" (@{username})" if username else "") + f", id {user.id}",
                  f"Герой: {profile.name}, {profile.age} {ru_plural(profile.age, 'год', 'года', 'лет')}, {gender}",
                  f"Тема: {profile.world_label or profile.topic_label}",
                  f"Стиль: {profile.style_label} · язык: {'кыргызский' if profile.language == 'ky' else 'русский'}"
                  f" · фото: {'есть' if has_photo else 'нет'}" + f" · фото близкого человека: {('есть, ' + profile.person_ru) if profile.has_person_photo else 'нет'}" + (" · исламский режим" if profile.islamic else "")]
+        if request_card:
+            lines.append(f"Пожелание: {profile.request or 'нет'}")
         if needs_payment:
             lines.append("Ждёт оплаты и подтверждения чека")
         elif use_credit:
             lines.append(f"Осталось книг у клиента: {self.db.get_credits(user.id)}")
+        if request_card:
+            lines.append("«Принять и начать» запускает книгу. «Отклонить» удалит фото и вернёт клиенту книгу.")
         return "\n".join(lines)
+
+    def _request_text(self, row) -> str:
+        """Карточка заявки по записи в базе (для напоминаний)."""
+        profile = Profile.from_dict(json.loads(row["profile_json"]))
+        who = self.db.get_user(row["user_id"])
+        user = TgUser(id=row["user_id"], first_name=(who["first_name"] if who and who["first_name"] else ""),
+                      username=who["username"] if who else None)
+        return self._new_order_text(row["id"], user, profile, profile.has_photo, bool(row["credit_used"]), False, request_card=True)
 
     async def _order_card(self, text: str) -> None:
         """Карточка заказа в чат заказов; сбой отправки заказ не ломает."""
@@ -365,6 +437,28 @@ class OrderService:
             await notify(text)
         except Exception:  # noqa: BLE001
             log.exception("Не удалось отправить карточку заказа")
+
+    async def _request_card(self, order_id: str, text: str) -> None:
+        """Заявка с кнопками «Принять и начать» / «Отклонить» в чат заказов; сбой отправки заказ не ломает (напомнит напоминание)."""
+        notify = getattr(self.notifier, "notify_request", None)
+        try:
+            if notify:
+                await notify(order_id, text)
+            else:
+                await (getattr(self.notifier, "notify_order", None) or self.notifier.notify_admin)(text)
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось отправить заявку %s", order_id)
+
+    async def _review_card(self, order_id: str, text: str) -> None:
+        """Карточка готовой книги с кнопками проверки (в чат владельца, рядом с двумя PDF)."""
+        notify = getattr(self.notifier, "notify_review", None)
+        try:
+            if notify:
+                await notify(order_id, text)
+            else:
+                await self.notifier.notify_admin(text)
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось отправить карточку проверки %s", order_id)
 
     def _start(self, order_id: str) -> None:
         task = asyncio.create_task(self._run(order_id), name=f"order-{order_id}")
@@ -472,18 +566,28 @@ class OrderService:
             "awaiting": [item(r) for r in self.db.orders_with_status("awaiting_payment", limit=30)],
             "recent": [item(r) for r in self.db.recent_paid(10)],
             "paid_today": self.db.count_paid_since(time.time() - DAY),
+            "waiting": {"requests": self.db.count_status("awaiting_approval"), "books": self.db.count_status("in_review")},
         }
 
     def admin_settings(self) -> dict:
-        return {**self.desk.settings(), "qr_url": self.qr_url(), "closed": self.closed()}
+        return {**self.desk.settings(), "qr_url": self.qr_url(), "closed": self.closed(),
+                "approve_requests": self.approve_requests_setting(), "review_books": self.review_books_setting(),
+                "approve_requests_active": self.approve_requests(), "review_books_active": self.review_books()}
 
     def update_admin_settings(self, data) -> dict:
         if not isinstance(data, dict):
             raise ValidationError("Настройки пришли в неверном виде.")
         closed = _parse_flag(data["closed"], "closed", "Закрытый бот") if "closed" in data else None
+        approve = (_parse_flag(data["approve_requests"], "approve_requests", "Проверка заявок")
+                   if "approve_requests" in data else None)
+        review = _parse_flag(data["review_books"], "review_books", "Проверка книг") if "review_books" in data else None
         self.desk.update(data)                 # при ошибке в любом поле ничего не записывается, в том числе closed
         if closed is not None:
             self.set_closed(closed)
+        if approve is not None:
+            self.db.set_setting(APPROVE_KEY, "1" if approve else "0")
+        if review is not None:
+            self.db.set_setting(REVIEW_KEY, "1" if review else "0")
         return self.admin_settings()
 
     def receipt_path(self, order_id: str) -> Path:
@@ -525,9 +629,12 @@ class OrderService:
             if "cover" in result.failed_pages or len(result.failed_pages) > MAX_FAILED_PAGES:
                 # книга из заглушек клиенту не нужна: заказ считается неудавшимся, книга возвращается на счёт
                 raise ProviderError("Не получилось нарисовать иллюстрации. Попробуйте ещё раз позже.")
-            self.db.update_order(order_id, status="done", finished_at=time.time())
-            log.info("Заказ %s готов", order_id)
-            await self._after_done(order_id, user_id, result)
+            if self.review_books():
+                await self._hold_for_review(order_id, result)       # клиенту книга не уходит, пока её не проверит человек
+            else:
+                self.db.update_order(order_id, status="done", finished_at=time.time())
+                log.info("Заказ %s готов", order_id)
+                await self._after_done(order_id, user_id, result)
         except asyncio.CancelledError:
             # остановка сервера (деплой): оплаченный заказ не трогаем (ни статус, ни фото), при запуске он продолжится;
             # неоплаченный получает ошибку и книга возвращается; уже готовую книгу ошибкой не портим
@@ -542,19 +649,32 @@ class OrderService:
             log.error("Заказ %s: сбой внешнего сервиса: %s", order_id, e.message)
             self.db.update_order(order_id, status="error", error=GENERIC_ERROR, error_detail=e.message)
             await self.notifier.notify_admin(f"Заказ {order_id} не создан. Причина: {e.message}")
+            await self._tell_failed(user_id)
         except StoryError as e:
             log.error("Заказ %s: %s", order_id, e)
             self.db.update_order(order_id, status="error", error=STORY_ERROR, error_detail=str(e))
             await self.notifier.notify_admin(f"Заказ {order_id} не создан: {e}")
+            await self._tell_failed(user_id)
         except Exception as e:  # noqa: BLE001 — любой сбой должен попасть в статус заказа
             log.exception("Заказ %s: непредвиденная ошибка", order_id)
             self.db.update_order(order_id, status="error", error=GENERIC_ERROR,
                                  error_detail=f"{type(e).__name__}: {e}")
             await self.notifier.notify_admin(f"Заказ {order_id}: непредвиденная ошибка {type(e).__name__}")
+            await self._tell_failed(user_id)
         finally:
-            if not interrupted:
+            if not interrupted and not self._waits_for_review(order_id):
                 photo_path.unlink(missing_ok=True)      # фото больше не нужно — не храним ни дня
                 parent_path.unlink(missing_ok=True)
+
+    def _waits_for_review(self, order_id: str) -> bool:
+        """Книга ждёт проверки человеком: фото ещё нужны («Сделать заново», «Исправить страницу»), их уберёт отправка клиенту или уборка через 23 часа."""
+        row = self.db.get_order(order_id)
+        return row is not None and row["status"] == "in_review"
+
+    async def _tell_failed(self, user_id: int) -> None:
+        """Когда заказ проходит ручную проверку, клиент мог закрыть приложение: о сбое ему пишет бот (сама ошибка и возврат книги уже записаны)."""
+        if self.approve_requests() or self.review_books():
+            await self._tell_user(user_id, REVIEW_FAILED_TEXT)
 
     async def _after_done(self, order_id: str, user_id: int, result: BookResult) -> None:
         if result.failed_pages:
@@ -565,7 +685,8 @@ class OrderService:
         await self._order_card(f"✅ Заказ {order_id} готов: «{result.story.title}». "
                                + ("Книга отправлена клиенту в чат." if delivered else "В чат отправить не вышло: книга ждёт клиента в приложении."))
 
-    async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True) -> bool:
+    async def _deliver(self, order_id: str, user_id: int, story: Story, pdf_path: Path, *, offer: bool = True,
+                       admin_copy: bool | None = None) -> bool:
         filename = safe_filename(story.title)
         mobile = Path(pdf_path).with_name("mobile.pdf")
         if not mobile.exists():                         # книга создана до обновления (или повторная отправка): допекаем вариант для телефона
@@ -586,7 +707,7 @@ class OrderService:
         self.db.update_order(order_id, delivered=1 if ok else 0)
         if ok and offer:
             await self._offer_print(order_id, user_id)
-        if offer:                              # копия админу только при первой отправке, не на каждую повторную
+        if offer if admin_copy is None else admin_copy:      # копия админу только при первой отправке, не на каждую повторную (после проверки он уже видел оба файла)
             try:
                 await self.notifier.send_admin_book(pdf_path, filename, f"Копия книги. Заказ {order_id}, пользователь {user_id}.")
             except Exception:  # noqa: BLE001
@@ -605,6 +726,323 @@ class OrderService:
         story = Story.from_dict(json.loads((self.order_dir(order_id) / "story.json").read_text(encoding="utf-8")))
         return await self._deliver(order_id, viewer.id, story, pdf, offer=False)
 
+    # ------------------------------------------------------------------ ручная проверка: заявка
+    def _spawn(self, coro, name: str) -> None:
+        task = asyncio.create_task(coro, name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    def _order_or_404(self, order_id: str):
+        row = self.db.get_order(order_id) if ORDER_ID_RE.match(order_id or "") else None
+        if row is None:
+            raise NotFoundError("Такого заказа нет.")
+        return row
+
+    def order_status(self, order_id: str) -> str | None:
+        row = self.db.get_order(order_id) if ORDER_ID_RE.match(order_id or "") else None
+        return row["status"] if row else None
+
+    async def accept_request(self, order_id: str) -> None:
+        """Администратор принял заявку: статус queued и запуск генерации. Двойное нажатие: второй раз ConflictError."""
+        self._order_or_404(order_id)
+        if not self.db.transition(order_id, ("awaiting_approval",), status="queued", review_at=time.time()):
+            raise ConflictError("Эта заявка уже обработана.")
+        self._start(order_id)
+        log.info("Заказ %s: заявка принята, генерация запущена", order_id)
+
+    async def decline_request(self, order_id: str) -> None:
+        """Администратор отклонил заявку: книга возвращается на счёт, файлы заказа (фото) удаляются, клиент получает сообщение."""
+        row = self._order_or_404(order_id)
+        if row["status"] != "awaiting_approval":
+            raise ConflictError("Эта заявка уже обработана.")
+        had_credit = bool(row["credit_used"])
+        profile = Profile.from_dict(json.loads(row["profile_json"]))
+        done = self.db.transition(order_id, ("awaiting_approval",), status="cancelled", files_deleted=1,
+                                  profile_json=json.dumps(profile.scrubbed(), ensure_ascii=False))     # возврат книги — в той же транзакции
+        if not done:
+            raise ConflictError("Эта заявка уже обработана.")
+        shutil.rmtree(self.order_dir(order_id), ignore_errors=True)
+        log.info("Заказ %s: заявка отклонена, файлы удалены", order_id)
+        await self._tell_user(row["user_id"], REQUEST_DECLINED_TEXT if had_credit else REQUEST_DECLINED_FREE_TEXT)
+
+    # ------------------------------------------------------------------ ручная проверка: готовая книга
+    def _claim(self, order_id: str) -> None:
+        """Один человек правит книгу за раз: пока идёт перерисовка или отправка, другие кнопки ждут."""
+        if order_id in self._busy:
+            raise ConflictError("Книга сейчас обрабатывается (идёт правка или отправка). Подождите минуту и нажмите ещё раз.")
+        self._busy.add(order_id)
+
+    def _release(self, order_id: str) -> None:
+        self._busy.discard(order_id)
+
+    def review_row(self, order_id: str):
+        """Заказ, который сейчас ждёт проверки. Иначе ConflictError: книга уже отправлена или ещё делается."""
+        row = self._order_or_404(order_id)
+        if row["status"] != "in_review":
+            raise ConflictError("Эта книга уже обработана или ещё не готова к проверке.")
+        return row
+
+    def _load_story(self, order_id: str) -> Story:
+        try:
+            return Story.from_dict(json.loads((self.order_dir(order_id) / "story.json").read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            raise NotFoundError("Файлы книги не найдены: возможно, их уже удалили.") from None
+
+    def page_text(self, order_id: str, number: int) -> str:
+        story = self._load_story(order_id)
+        if not 1 <= number <= len(story.pages):
+            raise ValidationError(f"В книге нет страницы {number}.")
+        return story.pages[number - 1].text
+
+    def _photos(self, order_id: str, profile: Profile) -> tuple[bytes | None, bytes | None]:
+        """Фото ребёнка и близкого человека, если они ещё на диске (через 23 часа их удаляет уборка)."""
+        odir = self.order_dir(order_id)
+        photo, person = odir / "photo.jpg", odir / PERSON_FILE
+        return (photo.read_bytes() if photo.exists() else None, person.read_bytes() if person.exists() else None)
+
+    def _need_photos(self, order_id: str, profile: Profile, what: str) -> tuple[bytes | None, bytes | None]:
+        photo, person = self._photos(order_id, profile)
+        if (profile.has_photo and photo is None) or (profile.has_person_photo and person is None):
+            raise ConflictError(PHOTO_GONE.format(what=what))
+        return photo, person
+
+    def _review_text(self, order_id: str, story: Story, profile: Profile, heading: str, failed: list[str] | tuple = ()) -> str:
+        row = self.db.get_order(order_id)
+        who = self.db.get_user(row["user_id"]) if row else None
+        name = (who["first_name"] if who and who["first_name"] else "Без имени") + (f" (@{who['username']})" if who and who["username"] else "")
+        odir = self.order_dir(order_id)
+        gone = [label for label, flag, file in (("ребёнка", profile.has_photo, "photo.jpg"),
+                                              ("близкого человека", profile.has_person_photo, PERSON_FILE))
+                if flag and not (odir / file).exists()]
+        lines = [heading, f"«{story.title}», заказ {order_id}",
+                 f"От: {name}, id {row['user_id'] if row else '?'}",
+                 f"Герой: {profile.name}, {profile.age} {ru_plural(profile.age, 'год', 'года', 'лет')} · {profile.style_label} · "
+                 f"язык: {'кыргызский' if profile.language == 'ky' else 'русский'}"]
+        if profile.request:
+            lines.append(f"Пожелание: {profile.request}")
+        if failed:
+            lines.append("Не нарисовались: " + ", ".join(("обложка" if f == "cover" else f"страница {f[1:]}") for f in failed)
+                         + ". Вместо них заглушки, нажмите «Исправить страницу».")
+        if gone:
+            lines.append("Фото " + " и ".join(gone) + " уже удалено: «Сделать заново» и «Исправить страницу» недоступны.")
+        lines.append("Выше два файла: развороты и версия для телефона. Клиенту ничего не уйдёт, пока вы не нажмёте «Отправить клиенту».")
+        return "\n".join(lines)
+
+    async def _send_review(self, order_id: str, story: Story, profile: Profile, heading: str,
+                           failed: list[str] | tuple = ()) -> None:
+        """Администратору: оба PDF и карточка с кнопками. Сбой отправки заказ не ломает: напоминание пришлёт карточку снова."""
+        odir = self.order_dir(order_id)
+        base = safe_filename(story.title).removesuffix(".pdf")
+        mobile = odir / "mobile.pdf"
+        if not mobile.exists():
+            mobile = await asyncio.to_thread(self.ensure_mobile_pdf, order_id) or mobile
+        try:
+            await self.notifier.send_admin_book(odir / "book.pdf", f"{base} (развороты).pdf",
+                                                f"Проверка. Заказ {order_id}: развороты, как для печати.")
+            if mobile.exists():
+                await self.notifier.send_admin_book(mobile, f"{base} (для телефона).pdf",
+                                                    f"Проверка. Заказ {order_id}: версия для телефона, страницы по одной.")
+        except Exception:  # noqa: BLE001
+            log.exception("Заказ %s: не удалось отправить файлы на проверку", order_id)
+        await self._review_card(order_id, self._review_text(order_id, story, profile, heading, failed))
+
+    async def _hold_for_review(self, order_id: str, result: BookResult) -> None:
+        """Генерация закончилась: книга клиенту НЕ уходит, ждёт проверки (статус in_review, фото остаются для правок)."""
+        now = time.time()
+        self.db.update_order(order_id, status="in_review", finished_at=now, review_at=now, reminders=0)
+        log.info("Заказ %s готов и ждёт проверки", order_id)
+        row = self.db.get_order(order_id)
+        profile = Profile.from_dict(json.loads(row["profile_json"]))
+        if result.failure_notes:
+            log.warning("Заказ %s: %s", order_id, "; ".join(result.failure_notes[:3]))
+        try:
+            await self._send_review(order_id, result.story, profile, "📖 Книга готова, проверьте её", result.failed_pages)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — книга готова и ждёт проверки; сбой отправки не должен сделать из неё ошибку, напомнит напоминание
+            log.exception("Заказ %s: не удалось отправить книгу на проверку", order_id)
+
+    async def approve_book(self, order_id: str, *, auto: bool = False) -> None:
+        """«Отправить клиенту»: статус done, обычная доставка (оба файла, предложение печати), фото ребёнка и человека удаляются."""
+        row = self.review_row(order_id)
+        self._claim(order_id)
+        try:
+            if not self.db.transition(order_id, ("in_review",), status="done", finished_at=time.time()):
+                raise ConflictError("Эта книга уже обработана.")
+            odir = self.order_dir(order_id)
+            for name in ("photo.jpg", PERSON_FILE):
+                (odir / name).unlink(missing_ok=True)
+            story = self._load_story(order_id)
+            delivered = await self._deliver(order_id, row["user_id"], story, odir / "book.pdf", admin_copy=False)
+            log.info("Заказ %s проверен и отправлен клиенту%s", order_id, " автоматически" if auto else "")
+            await self._order_card(f"✅ Заказ {order_id} готов: «{story.title}». "
+                                   + ("Книга отправлена клиенту в чат." if delivered else "В чат отправить не вышло: книга ждёт клиента в приложении."))
+        finally:
+            self._release(order_id)
+
+    async def redo_book(self, order_id: str) -> None:
+        """«Сделать заново»: та же анкета и те же фото, новый текст и картинки. Нужны фото на месте, иначе объясняем почему нельзя."""
+        self.review_row(order_id)
+        self._claim(order_id)
+        try:
+            row = self.review_row(order_id)
+            profile = Profile.from_dict(json.loads(row["profile_json"]))
+            self._need_photos(order_id, profile, "новая книга")
+            if not self.db.transition(order_id, ("in_review",), status="queued", title=None, finished_at=None,
+                                      review_at=time.time(), reminders=0):
+                raise ConflictError("Эта книга уже обработана.")
+            for path in self.order_dir(order_id).iterdir():           # старые текст, картинки и PDF не должны перепутаться с новыми
+                if path.is_file() and path.name not in KEEP_ON_REDO:
+                    path.unlink(missing_ok=True)
+            self._start(order_id)
+            log.info("Заказ %s: администратор просит сделать книгу заново", order_id)
+        finally:
+            self._release(order_id)
+
+    def check_page_redraw(self, order_id: str, number: int | None = None) -> None:
+        """Можно ли сейчас перерисовать страницу: книга на проверке, номер верный, фото ещё на месте. Иначе понятная ошибка (до того, как админ напишет пометку)."""
+        row = self.review_row(order_id)
+        story = self._load_story(order_id)
+        if number is not None and (not isinstance(number, int) or not 1 <= number <= len(story.pages)):
+            raise ValidationError(f"В книге нет страницы {number}.")
+        self._need_photos(order_id, Profile.from_dict(json.loads(row["profile_json"])), "страница")
+
+    async def start_page_redraw(self, order_id: str, number: int, note: str = "") -> None:
+        """«Исправить страницу»: перерисовать ТОЛЬКО эту страницу (те же образцы, сцена и пометка), пересобрать PDF и прислать администратору снова."""
+        self.check_page_redraw(order_id, number)
+        note = clean_text(note)[:200]
+        self._claim(order_id)
+        self._spawn(self._redraw_task(order_id, number, note), f"redraw-{order_id}-{number}")
+
+    async def _redraw_task(self, order_id: str, number: int, note: str) -> None:
+        try:
+            row = self.review_row(order_id)
+            profile = Profile.from_dict(json.loads(row["profile_json"]))
+            story = self._load_story(order_id)
+            photo, person = self._photos(order_id, profile)
+            odir = self.order_dir(order_id)
+            try:
+                async with self.gen_sem:
+                    await asyncio.wait_for(redraw_page(story, profile, self.image, odir, number, note=note, photo=photo,
+                                                       person_photo=person, image_sem=self.image_sem), timeout=ORDER_TIMEOUT)
+                await assemble_pdfs(story, profile, odir, cover_has_title=bool(read_cover_meta(odir).get("title_in_image")),
+                                    mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
+                                    pdf_layout=self.settings.pdf_layout)
+            except asyncio.TimeoutError:
+                await self._review_card(order_id, f"⚠️ Страницу {number} перерисовать не вышло: сервис слишком долго не отвечал. "
+                                                  "Прежняя картинка осталась, книга не изменилась.")
+                return
+            except ProviderError as e:
+                log.error("Заказ %s: страница %s не перерисовалась: %s", order_id, number, e.message)
+                await self._review_card(order_id, f"⚠️ Страницу {number} перерисовать не вышло: {e.message} "
+                                                  "Прежняя картинка осталась, книга не изменилась.")
+                return
+            self.db.update_order(order_id, review_at=time.time(), reminders=0)
+            log.info("Заказ %s: страница %s перерисована", order_id, number)
+            await self._send_review(order_id, story, profile, f"🖼 Страница {number} перерисована, книга пересобрана")
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — сбой правки не должен терять книгу: она остаётся на проверке
+            log.exception("Заказ %s: ошибка при перерисовке страницы %s", order_id, number)
+            await self.notifier.notify_admin(f"Заказ {order_id}: страницу {number} перерисовать не получилось (ошибка сервера). Книга не изменилась.")
+        finally:
+            self._release(order_id)
+
+    async def set_page_text(self, order_id: str, number: int, text: str) -> None:
+        """«Исправить текст»: новый текст страницы проходит жёсткие проверки (длина, язык, бренды), PDF пересобираются и приходят администратору."""
+        row = self.review_row(order_id)
+        self._claim(order_id)
+        try:
+            profile = Profile.from_dict(json.loads(row["profile_json"]))
+            odir = self.order_dir(order_id)
+            story = self._load_story(order_id)
+            if not isinstance(number, int) or not 1 <= number <= len(story.pages):
+                raise ValidationError(f"В книге нет страницы {number}.")
+            new_text = clean_text(text, keep_newlines=True)
+            if not new_text:
+                raise ValidationError("Текст пустой. Пришлите новый текст страницы.")
+            data = story.to_dict()
+            data["pages"][number - 1]["text"] = new_text
+            try:
+                candidate = validate_story(data, profile.language, exact_pages=False)
+            except StoryValidationError as e:
+                raise ValidationError(f"Текст не подошёл: {e}") from None
+            before = [v for v in check_story(story, profile, None) if v.code in HARD_CODES]
+            after = [v for v in check_story(candidate, profile, None) if v.code in HARD_CODES]
+            fresh = new_violations(before, after)
+            if fresh:
+                raise ValidationError("Текст не подошёл:\n" + violations_text(fresh))
+            tmp = odir / "story.json.tmp"
+            tmp.write_text(json.dumps(candidate.to_dict(), ensure_ascii=False), encoding="utf-8")
+            tmp.replace(odir / "story.json")
+            await assemble_pdfs(candidate, profile, odir, cover_has_title=bool(read_cover_meta(odir).get("title_in_image")),
+                                mock=self.settings.uses_mock, overlay_mode=self.settings.text_overlay_mode,
+                                pdf_layout=self.settings.pdf_layout)
+            self.db.update_order(order_id, review_at=time.time(), reminders=0)
+            log.info("Заказ %s: текст страницы %s исправлен", order_id, number)
+            await self._send_review(order_id, candidate, profile, f"✏️ Текст страницы {number} исправлен, книга пересобрана")
+        finally:
+            self._release(order_id)
+
+    # --- что бот ждёт от администратора следующим сообщением
+    def expect_edit(self, chat_id: int, user_id: int, kind: str, order_id: str, page: int) -> None:
+        self._pending[(chat_id, user_id)] = PendingEdit(kind, order_id, page, time.time() + PENDING_TTL)
+
+    def pending_edit(self, chat_id: int, user_id: int) -> PendingEdit | None:
+        item = self._pending.get((chat_id, user_id))
+        if item and item.until < time.time():
+            self._pending.pop((chat_id, user_id), None)
+            return None
+        return item
+
+    def finish_edit(self, chat_id: int, user_id: int) -> None:
+        self._pending.pop((chat_id, user_id), None)
+
+    # --- напоминания и автоотправка
+    async def send_reminders(self) -> int:
+        """Раз в час напоминает администратору о заявках и книгах без решения (не больше MAX_REMINDERS раз на заказ). Возвращает число напоминаний."""
+        now = time.time()
+        sent = 0
+        for row in self.db.orders_to_remind(now - REMIND_EVERY, MAX_REMINDERS):
+            order_id = row["id"]
+            if order_id in self._busy:
+                continue
+            number = row["reminders"] + 1
+            self.db.update_order(order_id, review_at=now, reminders=number)        # отметка до отправки: сбой не засыплет админа повторами
+            waited = human_wait(now - (row["finished_at"] if row["status"] == "in_review" and row["finished_at"] else row["created_at"]))
+            try:
+                if row["status"] == "awaiting_approval":
+                    await self._request_card(order_id, f"⏰ Заявка ждёт решения уже {waited} (напоминание {number} из {MAX_REMINDERS}).\n"
+                                                       + self._request_text(row))
+                else:
+                    story = self._load_story(order_id)
+                    profile = Profile.from_dict(json.loads(row["profile_json"]))
+                    await self._review_card(order_id, self._review_text(
+                        order_id, story, profile, f"⏰ Книга ждёт проверки уже {waited} (напоминание {number} из {MAX_REMINDERS})"))
+                sent += 1
+            except AppError:
+                log.warning("Заказ %s: напоминание не отправлено (нет файлов книги)", order_id)
+        return sent
+
+    async def auto_send_due(self) -> int:
+        """Если задан REVIEW_AUTO_SEND_HOURS (больше 0), книга, которую никто не проверил, сама уходит клиенту. Возвращает число отправленных."""
+        hours = self.settings.review_auto_send_hours
+        if hours <= 0:
+            return 0
+        sent = 0
+        for row in self.db.books_in_review_since(time.time() - hours * 3600):
+            if row["id"] in self._busy:
+                continue
+            try:
+                await self.approve_book(row["id"], auto=True)
+            except AppError as e:
+                log.warning("Заказ %s: автоотправка не вышла: %s", row["id"], e.message)
+                continue
+            sent += 1
+            await self.notifier.notify_admin(f"Заказ {row['id']}: книгу никто не проверил за {human_wait(hours * 3600)}, "
+                                             "она отправлена клиенту автоматически.")
+        return sent
+
     # ------------------------------------------------------------------ вариант для телефона у уже готовых книг
     def ensure_mobile_pdf(self, order_id: str) -> Path | None:
         """Вертикальный PDF 9:16 (mobile.pdf) для готовой книги, у которой его ещё нет (книги, созданные до обновления).
@@ -614,7 +1052,7 @@ class OrderService:
         row = self.db.get_order(order_id)
         odir = self.order_dir(order_id)
         target = odir / "mobile.pdf"
-        if row is None or row["status"] != "done" or row["files_deleted"]:
+        if row is None or row["status"] not in ("done", "in_review") or row["files_deleted"]:
             return None
         if target.exists():
             return target
@@ -678,6 +1116,8 @@ class OrderService:
         if row["files_deleted"]:
             raise NotFoundError(f"Файлы удалены через {self.settings.keep_files_days} дн. после создания. "
                                 "Создайте книгу заново.")
+        if self._art_hidden(row["status"]):
+            raise NotFoundError("Файл ещё не готов.")
         if name == "book.pdf":
             path = self.order_dir(order_id) / "book.pdf"
         elif IMAGE_NAME_RE.match(name):
@@ -687,6 +1127,10 @@ class OrderService:
         if not path.exists():
             raise NotFoundError("Файл ещё не готов.")
         return path
+
+    def _art_hidden(self, status: str) -> bool:
+        """Клиент не видит картинки и текст книги, пока её не проверил человек: ни при проверке, ни во время работы над ней."""
+        return status in REVIEW_STATUSES or (status in ACTIVE_STATUSES and self.review_books())
 
     def view(self, order_id: str, viewer: TgUser, *, is_admin: bool = False) -> dict:
         row = self._owned_order(order_id, viewer.id)
@@ -698,14 +1142,15 @@ class OrderService:
         def url(name: str) -> str:
             return f"/api/orders/{order_id}/{name}?t={token}"
 
+        hidden = self._art_hidden(status)
         story: Story | None = None
         story_path = odir / "story.json"
-        if story_path.exists() and not files_deleted:
+        if story_path.exists() and not files_deleted and not hidden:
             story = Story.from_dict(json.loads(story_path.read_text(encoding="utf-8")))
         profile = Profile.from_dict(json.loads(row["profile_json"]))
 
-        cover_ready = (odir / "cover.jpg").exists() and not files_deleted
-        pages_done = sum(1 for i in range(1, PAGES + 1) if (odir / f"p{i}.jpg").exists()) if not files_deleted else 0
+        cover_ready = (odir / "cover.jpg").exists() and not files_deleted and not hidden
+        pages_done = sum(1 for i in range(1, PAGES + 1) if (odir / f"p{i}.jpg").exists()) if not files_deleted and not hidden else 0
         pages = []
         if story:
             styles = read_layout_meta(odir).get("text_styles") or []
@@ -723,7 +1168,8 @@ class OrderService:
             "language": profile.language,
             "style": profile.style,
             "style_label": profile.style_label,
-            "title": row["title"],
+            "title": None if hidden else row["title"],
+            "review": hidden,                      # книгу проверит человек: приложение не показывает страницы по мере готовности
             "progress": self._progress(status, cover_ready, pages_done),
             "cover_url": url("img/cover.jpg") if cover_ready else None,
             "cover_color": hex_color(band_color(str(odir / "cover.jpg"))) if cover_ready else None,
@@ -752,6 +1198,10 @@ class OrderService:
             return {**base, "percent": 0, "stage": -1, "label": "Ждём оплату"}
         if status == "payment_review":
             return {**base, "percent": 0, "stage": -1, "label": "Проверяем оплату"}
+        if status == "awaiting_approval":
+            return {**base, "percent": 0, "stage": -1, "label": "Заявка на проверке"}
+        if status == "in_review":
+            return {**base, "percent": 0, "stage": -1, "label": "Проверяем книгу"}
         if status == "queued":
             return {**base, "percent": 2, "stage": -1, "label": "Жду очереди"}
         if status == "writing":
@@ -819,6 +1269,7 @@ class OrderService:
 
     def cleanup(self) -> int:
         """Удаляет фото старше суток, файлы заказов старше KEEP_FILES_DAYS и стирает личные данные из анкеты.
+        Заказы, которые ждут оплату или решение человека (заявка, книга на проверке), не трогаются.
         Возвращает число удалённых заказов (фото в него не входят)."""
         self.purge_old_photos()
         cutoff = time.time() - self.settings.keep_files_days * DAY

@@ -15,7 +15,7 @@ from .logging_setup import setup_logging
 from .notify import NullNotifier
 from .payments import make_payment_provider
 from .providers import make_image_provider, make_text_provider
-from .service import CLEANUP_PERIOD, OrderService
+from .service import CLEANUP_PERIOD, REVIEW_TICK, OrderService
 from .web import create_app
 
 log = logging.getLogger("skazka")
@@ -37,6 +37,20 @@ async def cleanup_loop(service: OrderService) -> None:
         except Exception:  # noqa: BLE001
             log.exception("Ошибка при уборке старых файлов")
         await asyncio.sleep(CLEANUP_PERIOD)
+
+
+async def review_loop(service: OrderService) -> None:
+    """Каждые REVIEW_TICK секунд: напоминает администратору о заявках и книгах без решения (раз в час на заказ, не больше 6 раз)
+    и, если задан REVIEW_AUTO_SEND_HOURS, отправляет клиенту книги, которые никто не проверил."""
+    while True:
+        try:
+            await service.send_reminders()
+            await service.auto_send_due()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Ошибка в напоминаниях о проверке")
+        await asyncio.sleep(REVIEW_TICK)
 
 
 async def amain() -> int:
@@ -96,12 +110,19 @@ async def amain() -> int:
         log.info("Бот закрыт: книги создают только по личным ссылкам (ссылки делает владелец в админке) и сам владелец.")
     else:
         log.info("Бот открыт для всех (закрытый режим выключен в админке).")
+    log.info("Ручная проверка: заявки %s, готовые книги %s%s", "включена" if service.approve_requests() else "выключена",
+             "включена" if service.review_books() else "выключена",
+             f", автоотправка непроверенных книг через {settings.review_auto_send_hours:g} ч" if settings.review_auto_send_hours > 0 else "")
+    if (service.approve_requests_setting() or service.review_books_setting()) and not (service.approve_requests() and service.review_books()):
+        log.warning("Проверка заявок и книг включена в настройках, но не работает без бота: задайте TELEGRAM_BOT_TOKEN и ADMIN_CHAT_ID. "
+                    "Пока заказы создаются без ручной проверки.")
     if settings.uses_mock:
         log.info("Работают заглушки (mock): ключи не нужны, картинки нарисованы Pillow.")
     if not settings.dev_mode:
         log.info("Открывайте Mini App из Telegram. Для проверки в обычном браузере поставьте DEV_MODE=1 в .env.")
 
-    tasks = [asyncio.create_task(cleanup_loop(service), name="cleanup")]
+    tasks = [asyncio.create_task(cleanup_loop(service), name="cleanup"),
+             asyncio.create_task(review_loop(service), name="review")]
     if runtime:
         tasks.append(asyncio.create_task(runtime.run(), name="bot"))
 

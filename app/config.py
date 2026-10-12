@@ -63,6 +63,11 @@ def _bool(name: str, default: bool = False) -> bool:
     return raw in ("1", "true", "yes", "on", "да")
 
 
+def _switch(name: str) -> bool:
+    """Переключатель on|off, который защищает клиента: включён всегда, кроме явного off (0, false, no, нет)."""
+    return _s(name).lower() not in ("0", "false", "no", "off", "нет")
+
+
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str = ""
@@ -103,6 +108,9 @@ class Settings:
     mock_delay_seconds: float = 1.2
 
     price_text: str = "590 сом"          # цена PDF-книги; владелец меняет её в админке
+    approve_requests: bool = True        # APPROVE_REQUESTS=on|off: заявку клиента сначала принимает человек (по умолчанию включено; в админке переключается)
+    review_books: bool = True            # REVIEW_BOOKS=on|off: готовую книгу сначала проверяет человек, и только потом она уходит клиенту
+    review_auto_send_hours: float = 0.0  # REVIEW_AUTO_SEND_HOURS: если больше 0, непроверенная книга сама уходит клиенту через столько часов (0 = никогда)
     text_overlay_mode: str = "auto"      # оформление текста на картинке: auto | fade | plate | plain (см. app/overlay.py)
 
     def is_admin_id(self, user_id: int) -> bool:
@@ -182,6 +190,9 @@ class Settings:
             image_concurrency=max(1, _int("IMAGE_CONCURRENCY", 3)),
             mock_delay_seconds=max(0.0, _float("MOCK_DELAY_SECONDS", 1.2)),
             text_overlay_mode=_s("TEXT_OVERLAY_MODE", "auto").lower() or "auto",
+            approve_requests=_switch("APPROVE_REQUESTS"),
+            review_books=_switch("REVIEW_BOOKS"),
+            review_auto_send_hours=max(0.0, _float("REVIEW_AUTO_SEND_HOURS", 0.0)),
         )
         settings.check_provider_names()
         return settings

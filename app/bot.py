@@ -12,11 +12,12 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import (TelegramAPIError, TelegramForbiddenError, TelegramNetworkError,
                                 TelegramRetryAfter, TelegramUnauthorizedError)
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import (BotCommand, BotCommandScopeChat, BotCommandScopeDefault, FSInputFile, InlineKeyboardButton,
-                           InlineKeyboardMarkup, LinkPreviewOptions, MenuButtonWebApp, Message, WebAppInfo, CallbackQuery)
+from aiogram.types import (BotCommand, BotCommandScopeChat, BotCommandScopeDefault, ForceReply, FSInputFile,
+                           InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, MenuButtonWebApp, Message, WebAppInfo,
+                           CallbackQuery)
 
 from .config import Settings
-from .errors import AppError
+from .errors import AppError, ValidationError
 from .service import ACCESS_MESSAGE, CLOSED_TEXT, PRINT_BUTTON, whatsapp_url
 from .story import PAGES
 from .textutil import ru_plural
@@ -29,8 +30,8 @@ WELCOME = (
     "✨ <b>Привет! Это Bala story bot.</b>\n\n"
     "Я делаю <b>персональные книги</b>, где главный герой — ваш малыш 👶\n\n"
     "📝 Вы отвечаете на несколько вопросов — 1–2 минуты. Можно выбрать тему и написать, какие герои и истории вам нужны\n"
-    "🎨 Я придумываю короткую добрую историю и рисую большие иллюстрации — 5–15 минут\n"
-    f"📖 Присылаю PDF-книгу: {PAGES_TEXT} с яркими картинками и несколькими строками текста на каждой\n\n"
+    "🎨 Мы придумываем короткую добрую историю, рисуем большие иллюстрации и сами проверяем книгу — обычно 1–2 часа\n"
+    f"📖 Присылаем PDF-книгу: {PAGES_TEXT} с яркими картинками и несколькими строками текста на каждой\n\n"
     "На русском или кыргызском, с горами, джайлоо и Иссык-Кулем 🏔️\n\n"
     "Нажмите кнопку ниже, и начнём 👇"
 )
@@ -41,7 +42,7 @@ HELP = (
     "1️⃣ Нажмите кнопку «✨ Создать книгу» — откроется приложение.\n"
     "2️⃣ Ответьте на вопросы о малыше: имя, возраст, любимые занятия, характер. Выберите тему и напишите, "
     "какие герои и что вы хотите увидеть в книге.\n"
-    "3️⃣ Подождите 5–15 минут — приложение можно закрыть.\n"
+    "3️⃣ Подождите: мы проверим заявку и сами посмотрим готовую книгу, обычно это 1–2 часа. Приложение можно закрыть.\n"
     f"4️⃣ Готовую книгу, PDF из {PAGES_TEXT} с яркими иллюстрациями, я пришлю сюда 💌\n\n"
     "Если кнопки не видно, отправьте /start."
 )
@@ -75,7 +76,7 @@ DESCRIPTION = (
     "✨ Bala story bot: персональные книги, где главный герой — ваш малыш!\n\n"
     "📝 Ответьте на несколько вопросов за 1–2 минуты: выберите тему и напишите, какие герои вам нужны\n"
     "🎨 Мы придумаем короткую добрую историю и нарисуем большие иллюстрации\n"
-    f"📖 Через 5–15 минут пришлём PDF-книгу: {PAGES_TEXT} с яркими картинками\n\n"
+    f"📖 Обычно в течение 1–2 часов пришлём PDF-книгу: {PAGES_TEXT} с яркими картинками\n\n"
     "Книга создаётся по личной ссылке, которую вы получите после оплаты: напишите нам в WhatsApp 💬\n\n"
     "На русском или кыргызском 🏔️"
 )
@@ -113,6 +114,66 @@ def _user_id(message: Message) -> int:
 
 async def _answer_closed(message: Message, service) -> None:
     await message.answer(closed_text(service.whatsapp()), link_preview_options=NO_PREVIEW)
+
+
+def request_keyboard(order_id: str) -> InlineKeyboardMarkup:
+    """Кнопки под заявкой клиента."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Принять и начать", callback_data=f"req:ok:{order_id}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"req:no:{order_id}")]])
+
+
+def review_keyboard(order_id: str) -> InlineKeyboardMarkup:
+    """Кнопки под готовой книгой: отправить, сделать заново, исправить страницу или текст."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить клиенту", callback_data=f"rev:ok:{order_id}")],
+        [InlineKeyboardButton(text="🔁 Сделать заново", callback_data=f"rev:redo:{order_id}")],
+        [InlineKeyboardButton(text="🖼 Исправить страницу", callback_data=f"rev:page:{order_id}"),
+         InlineKeyboardButton(text="✏️ Исправить текст", callback_data=f"rev:text:{order_id}")]])
+
+
+def pages_keyboard(order_id: str, action: str) -> InlineKeyboardMarkup:
+    """Ряд кнопок 1–8: какую страницу исправить (action: pn — перерисовать, text — текст)."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=str(n), callback_data=f"rev:{action}:{order_id}:{n}") for n in range(1, PAGES + 1)]])
+
+
+DASHES = ("-", "—", "–", "−")
+ALERT_MAX = 190                 # Telegram: текст всплывающего окна на кнопке не длиннее 200 символов
+
+
+async def _answer(call: CallbackQuery, text: str | None = None, alert: bool = False) -> bool:
+    try:
+        await call.answer(text, show_alert=alert)
+        return True
+    except (TelegramAPIError, TelegramNetworkError, OSError):     # кнопка устарела, на неё уже ответили или нет связи
+        return False
+
+
+async def _drop_keyboard(call: CallbackQuery) -> None:
+    if call.message is None:
+        return
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except (TelegramAPIError, TelegramNetworkError, OSError):
+        pass
+
+
+async def _say(call: CallbackQuery, text: str, **kw) -> None:
+    if call.message is None:
+        return
+    try:
+        await call.message.answer(text, **kw)
+    except (TelegramAPIError, TelegramNetworkError, OSError) as e:
+        log.info("Ответ администратору не отправлен: %s", type(e).__name__)
+
+
+async def _tell_problem(call: CallbackQuery, text: str) -> None:
+    """Объяснение, почему кнопка не сработала: короткое во всплывающем окне, длинное сообщением в чат."""
+    if len(text) <= ALERT_MAX and await _answer(call, text, True):
+        return
+    await _answer(call)
+    await _say(call, html.escape(text))
 
 
 def build_router() -> Router:
@@ -219,6 +280,130 @@ def build_router() -> Router:
         except TelegramAPIError:
             pass
 
+    @router.callback_query(F.data.startswith("req:"))
+    async def on_request_button(call: CallbackQuery, runtime: "BotRuntime") -> None:
+        """«Принять и начать» / «Отклонить» под заявкой клиента. Только администраторы; повторное нажатие ничего не ломает."""
+        service = runtime.service
+        if service is None or not service.is_admin(call.from_user.id):
+            await _answer(call, "Это действие только для владельца.", True)
+            return
+        parts = (call.data or "").split(":", 2)
+        if len(parts) != 3 or parts[1] not in ("ok", "no"):
+            await _answer(call, "Не получилось. Откройте админку.", True)
+            return
+        try:
+            if parts[1] == "ok":
+                await service.accept_request(parts[2])
+                note = "✅ Заявка принята, книга создаётся"
+            else:
+                await service.decline_request(parts[2])
+                note = "❌ Заявка отклонена, клиенту отправлено сообщение, книга возвращена на счёт"
+        except AppError as e:
+            await _tell_problem(call, e.message)
+            await _drop_keyboard(call)
+            return
+        await _answer(call, note[:ALERT_MAX])
+        await _drop_keyboard(call)
+        await _say(call, note)
+
+    @router.callback_query(F.data.startswith("rev:"))
+    async def on_review_button(call: CallbackQuery, runtime: "BotRuntime") -> None:
+        """Кнопки проверки готовой книги: rev:ok / redo / page / text (и rev:pn, rev:text с номером страницы)."""
+        service = runtime.service
+        if service is None or not service.is_admin(call.from_user.id):
+            await _answer(call, "Это действие только для владельца.", True)
+            return
+        parts = (call.data or "").split(":")
+        action = parts[1] if len(parts) > 1 else ""
+        order_id = parts[2] if len(parts) > 2 else ""
+        number = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+        chat_id = call.message.chat.id if call.message else call.from_user.id
+        try:
+            if action == "ok":
+                service.review_row(order_id)                           # уже отправлена? скажем во всплывающем окне, а не после «Отправляю…»
+                await _answer(call, "Отправляю клиенту…")
+                await service.approve_book(order_id)
+                await _drop_keyboard(call)
+                await _say(call, "✅ Книга отправлена клиенту")
+            elif action == "redo":
+                await service.redo_book(order_id)
+                await _answer(call, "Делаю заново")
+                await _drop_keyboard(call)
+                await _say(call, "🔁 Делаю книгу заново по той же анкете. Пришлю её сюда, когда будет готова: это несколько минут.")
+            elif action == "page" and number is None:
+                service.check_page_redraw(order_id)                    # фото удалено или книга уже отправлена: говорим сразу, а не после пометки
+                await _answer(call)
+                await _say(call, "Какую страницу перерисовать?", reply_markup=pages_keyboard(order_id, "pn"))
+            elif action == "pn" and number is not None:
+                service.check_page_redraw(order_id, number)
+                service.expect_edit(chat_id, call.from_user.id, "page", order_id, number)
+                await _answer(call)
+                await _say(call, f"Страница {number}. Напишите одним сообщением, что на ней исправить "
+                                 "(например: «убрать лишнюю собаку» или «сделать день, а не ночь»). "
+                                 "Если ничего писать не нужно, отправьте «-»: страница просто нарисуется заново.",
+                           reply_markup=ForceReply(force_reply=True, input_field_placeholder="Что исправить? Или «-»"))
+            elif action == "text" and number is None:
+                service.review_row(order_id)
+                await _answer(call)
+                await _say(call, "Текст какой страницы исправить?", reply_markup=pages_keyboard(order_id, "text"))
+            elif action == "text":
+                service.review_row(order_id)
+                current = service.page_text(order_id, number)
+                service.expect_edit(chat_id, call.from_user.id, "text", order_id, number)
+                await _answer(call)
+                await _say(call, f"Страница {number}. Сейчас там написано:\n\n{html.escape(current)}\n\n"
+                                 "Пришлите новый текст страницы одним сообщением. Чтобы ничего не менять, отправьте «-».",
+                           reply_markup=ForceReply(force_reply=True, input_field_placeholder="Новый текст страницы"))
+            else:
+                await _answer(call, "Не получилось. Нажмите кнопку на самой карточке книги.", True)
+        except AppError as e:
+            await _tell_problem(call, e.message)
+            if service.order_status(order_id) != "in_review":       # книга уже обработана: старые кнопки больше не нужны
+                await _drop_keyboard(call)
+
+    async def has_pending_edit(message: Message, runtime: "BotRuntime") -> bool:
+        service = getattr(runtime, "service", None)
+        if service is None or message.from_user is None or not message.text or message.text.startswith("/"):
+            return False
+        return service.pending_edit(message.chat.id, message.from_user.id) is not None
+
+    @router.message(has_pending_edit)
+    async def on_pending_edit(message: Message, runtime: "BotRuntime") -> None:
+        """Следующее сообщение администратора после «Исправить страницу» (пометка) или «Исправить текст» (новый текст)."""
+        service = runtime.service
+        key = (message.chat.id, message.from_user.id)
+        pending = service.pending_edit(*key)
+        if pending is None:
+            return
+        text = (message.text or "").strip()
+        if not service.is_admin(message.from_user.id):
+            service.finish_edit(*key)
+            return
+        if pending.kind == "page":
+            service.finish_edit(*key)
+            try:
+                await service.start_page_redraw(pending.order_id, pending.page, "" if text in DASHES else text)
+            except AppError as e:
+                await message.answer(html.escape(e.message))
+                return
+            await message.answer(f"🖼 Перерисовываю страницу {pending.page}. Это около минуты, потом пришлю обе версии книги.")
+            return
+        if text in DASHES:
+            service.finish_edit(*key)
+            await message.answer("Хорошо, текст не меняю.")
+            return
+        await message.answer("✏️ Проверяю текст и собираю книгу заново…")
+        try:
+            await service.set_page_text(pending.order_id, pending.page, text)
+        except ValidationError as e:                     # текст не прошёл проверку: ждём исправленный
+            await message.answer(f"{html.escape(e.message)}\n\nПришлите исправленный текст ещё раз или «-», чтобы отменить.")
+            return
+        except AppError as e:
+            service.finish_edit(*key)
+            await message.answer(html.escape(e.message))
+            return
+        service.finish_edit(*key)
+
     @router.message(Command("help"), private)
     async def on_help(message: Message, webapp_url: str, runtime: "BotRuntime") -> None:
         service = runtime.service
@@ -251,6 +436,38 @@ class TelegramNotifier:
         self.admin_chat_id = admin_chat_id
         self.orders_chat_id = orders_chat_id if orders_chat_id is not None else admin_chat_id
         self.webapp_url = webapp_url
+
+    @property
+    def can_approve_requests(self) -> bool:
+        """Заявку можно показать человеку с кнопками, только если есть чат заказов (или чат владельца)."""
+        return self.orders_chat_id is not None
+
+    @property
+    def can_review_books(self) -> bool:
+        """Книгу на проверку присылаем в чат владельца вместе с двумя PDF."""
+        return self.admin_chat_id is not None
+
+    async def notify_request(self, order_id: str, text: str) -> None:
+        """Заявка клиента в чат заказов (ORDERS_CHAT_ID, иначе владельцу) с кнопками «Принять и начать» / «Отклонить»."""
+        if self.orders_chat_id is None:
+            log.warning("Чат заказов не задан: заявка %s не отправлена, её видно только в базе", order_id)
+            return
+        try:
+            await self.bot.send_message(self.orders_chat_id, text[:4000], reply_markup=request_keyboard(order_id),
+                                        parse_mode=None)     # без разметки: текст родителей показываем как есть
+        except Exception as e:  # noqa: BLE001 — заявка уже в базе, напоминание пришлёт её снова
+            log.warning("Заявка %s не отправлена: %s", order_id, type(e).__name__)
+
+    async def notify_review(self, order_id: str, text: str) -> None:
+        """Карточка готовой книги в чат владельца (рядом с двумя PDF) с кнопками проверки."""
+        if self.admin_chat_id is None:
+            log.warning("ADMIN_CHAT_ID не задан: книга %s ждёт проверки, но карточку отправить некуда", order_id)
+            return
+        try:
+            await self.bot.send_message(self.admin_chat_id, text[:4000], reply_markup=review_keyboard(order_id),
+                                        parse_mode=None)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Карточка проверки %s не отправлена: %s", order_id, type(e).__name__)
 
     async def notify_payment(self, order_id: str, receipt_path: Path, text: str) -> None:
         """Чек владельцу: фото и кнопки «Подтвердить» / «Отклонить» (и вход в админку)."""

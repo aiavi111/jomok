@@ -7,7 +7,11 @@
   notify_payment(order_id, receipt_path, text) — чек владельцу с кнопками;
   notify_user(user_id, text)                   — сообщение человеку;
   notify_order(text)                           — карточка заказа (новый, готов) в чат заказов (ORDERS_CHAT_ID, иначе владельцу);
-  send_print_offer(user_id, text, whatsapp_url) — предложение печатной версии после книги (кнопка «Заказать в WhatsApp»).
+  send_print_offer(user_id, text, whatsapp_url) — предложение печатной версии после книги (кнопка «Заказать в WhatsApp»);
+  notify_request(order_id, text)               — карточка заявки клиента с кнопками «Принять и начать» / «Отклонить» (чат заказов);
+  notify_review(order_id, text)                — карточка готовой книги с кнопками проверки (чат владельца, рядом с двумя PDF).
+Флаги can_approve_requests и can_review_books говорят, может ли уведомитель показать эти кнопки человеку. Если нет (бот не подключён),
+ручная проверка заявок и книг не включается, иначе заказы навсегда остались бы без решения.
 """
 from __future__ import annotations
 
@@ -32,6 +36,9 @@ class Notifier(Protocol):
 class NullNotifier:
     """Ничего не отправляет, только пишет в лог. Книга остаётся доступной по ссылке в Mini App."""
 
+    can_approve_requests = False        # кнопок нет: проверка заявок и книг вручную здесь невозможна
+    can_review_books = False
+
     async def send_book(self, user_id, pdf_path, filename, caption) -> bool:
         log.info("Бот не подключён: PDF в чат не отправлен")
         return False
@@ -47,3 +54,9 @@ class NullNotifier:
 
     async def send_print_offer(self, user_id, text, whatsapp_url) -> None:
         return None
+
+    async def notify_request(self, order_id, text) -> None:
+        log.info("Заявка (бот не подключён): %s", text[:200])
+
+    async def notify_review(self, order_id, text) -> None:
+        log.info("Книга на проверку (бот не подключён): %s", text[:200])

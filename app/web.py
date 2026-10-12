@@ -134,6 +134,7 @@ async def get_config(request: web.Request) -> web.Response:
         "free_in_test": not service.desk.required(),
         "payment_required": service.desk.required(),
         "is_admin": _is_admin(settings, user),
+        "manual_checks": service.approve_requests() or service.review_books(),     # заявку и книгу сначала смотрит человек: ждать дольше, чем 5–15 минут
         "access": service.access_state(user.id),
         "access_whatsapp_url": service.access_whatsapp_url(),     # «напишите нам», когда доступа нет
         "print": service.print_offer(),
