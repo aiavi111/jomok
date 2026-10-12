@@ -182,6 +182,10 @@ class OrderService:
     def is_admin(self, user_id: int) -> bool:
         return self.settings.is_admin_id(user_id)
 
+    def can_review(self, user_id: int) -> bool:
+        """Кнопки проверки книги: администраторы и человек из REVIEW_CHAT_ID."""
+        return self.settings.can_review_id(user_id)
+
     def closed(self) -> bool:
         """Закрытый режим включён, пока владелец явно не выключил его в админке."""
         return self.db.get_setting(CLOSED_KEY, "1") != "0"
@@ -861,6 +865,7 @@ class OrderService:
             log.warning("Заказ %s: %s", order_id, "; ".join(result.failure_notes[:3]))
         try:
             await self._send_review(order_id, result.story, profile, "📖 Книга готова, проверьте её", result.failed_pages)
+            await self._order_card(f"📖 Заказ {order_id} готов: «{result.story.title}». Владелец проверяет книгу, клиенту она пока не отправлена.")
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — книга готова и ждёт проверки; сбой отправки не должен сделать из неё ошибку, напомнит напоминание

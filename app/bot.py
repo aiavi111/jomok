@@ -310,7 +310,7 @@ def build_router() -> Router:
     async def on_review_button(call: CallbackQuery, runtime: "BotRuntime") -> None:
         """Кнопки проверки готовой книги: rev:ok / redo / page / text (и rev:pn, rev:text с номером страницы)."""
         service = runtime.service
-        if service is None or not service.is_admin(call.from_user.id):
+        if service is None or not service.can_review(call.from_user.id):
             await _answer(call, "Это действие только для владельца.", True)
             return
         parts = (call.data or "").split(":")
@@ -376,7 +376,7 @@ def build_router() -> Router:
         if pending is None:
             return
         text = (message.text or "").strip()
-        if not service.is_admin(message.from_user.id):
+        if not service.can_review(message.from_user.id):
             service.finish_edit(*key)
             return
         if pending.kind == "page":
@@ -431,8 +431,10 @@ def build_router() -> Router:
 class TelegramNotifier:
     """Отправка книг и сообщений через Bot API."""
 
-    def __init__(self, bot: Bot, admin_chat_id: int | None, webapp_url: str = "", orders_chat_id: int | None = None):
+    def __init__(self, bot: Bot, admin_chat_id: int | None, webapp_url: str = "", orders_chat_id: int | None = None,
+                 review_chat_id: int | None = None):
         self.bot = bot
+        self.review_chat_id = review_chat_id
         self.admin_chat_id = admin_chat_id
         self.orders_chat_id = orders_chat_id if orders_chat_id is not None else admin_chat_id
         self.webapp_url = webapp_url
@@ -444,12 +446,12 @@ class TelegramNotifier:
 
     @property
     def can_review_books(self) -> bool:
-        """Книгу на проверку присылаем в чат заказов (или владельцу, если его нет) вместе с двумя PDF."""
-        return self.orders_chat_id is not None
+        """Книгу на проверку присылаем человеку из REVIEW_CHAT_ID (иначе владельцу) вместе с двумя PDF; нет чатов, то в чат заказов."""
+        return bool(self._work_chats())
 
     def _work_chats(self) -> list[int]:
-        """Куда слать PDF и карточки проверки: чат заказов, а если он недоступен, личный чат владельца."""
-        return [c for c in dict.fromkeys((self.orders_chat_id, self.admin_chat_id)) if c is not None]
+        """Куда слать PDF и кнопки проверки: REVIEW_CHAT_ID, затем личный чат владельца. В группу заказов идут только отчёты, она запасной вариант."""
+        return [c for c in dict.fromkeys((self.review_chat_id, self.admin_chat_id, self.orders_chat_id)) if c is not None]
 
     async def notify_request(self, order_id: str, text: str) -> None:
         """Заявка клиента в чат заказов (ORDERS_CHAT_ID, иначе владельцу) с кнопками «Принять и начать» / «Отклонить»."""
@@ -463,10 +465,10 @@ class TelegramNotifier:
             log.warning("Заявка %s не отправлена: %s", order_id, type(e).__name__)
 
     async def notify_review(self, order_id: str, text: str) -> None:
-        """Карточка готовой книги в чат заказов (рядом с двумя PDF) с кнопками проверки; не вышло — владельцу в личку."""
+        """Карточка готовой книги владельцу (рядом с двумя PDF) с кнопками проверки; не вышло — в чат заказов."""
         chats = self._work_chats()
         if not chats:
-            log.warning("Чат заказов и ADMIN_CHAT_ID не заданы: книга %s ждёт проверки, но карточку отправить некуда", order_id)
+            log.warning("ADMIN_CHAT_ID и чат заказов не заданы: книга %s ждёт проверки, но карточку отправить некуда", order_id)
             return
         for chat in chats:
             try:
@@ -530,7 +532,7 @@ class TelegramNotifier:
         return False
 
     async def send_admin_book(self, pdf_path: Path, filename: str, caption: str) -> None:
-        """PDF для проверки и копии книг: в чат заказов, а если он недоступен, владельцу в личку."""
+        """PDF для проверки и копии книг: владельцу в личку, а если ему не отправить, то в чат заказов."""
         for chat in self._work_chats():
             try:
                 await self._send_document(chat, pdf_path, filename, caption)
@@ -566,7 +568,8 @@ class BotRuntime:
         self.bot_info = bot_info
         self.bot = bot or Bot(token=settings.telegram_bot_token,
                               default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-        self.notifier = TelegramNotifier(self.bot, settings.admin_chat_id, settings.webapp_url, settings.orders_chat_id)
+        self.notifier = TelegramNotifier(self.bot, settings.admin_chat_id, settings.webapp_url, settings.orders_chat_id,
+                                        settings.review_chat_id)
         self.service = None                  # сервис заказов подключается в main.py
         self.dp = Dispatcher()
         self.dp.include_router(build_router())

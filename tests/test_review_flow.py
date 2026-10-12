@@ -913,7 +913,7 @@ async def test_notifier_sends_the_cards_with_buttons_to_the_right_chats():
     await notifier.notify_request("order0000001", "Заявка <b>с & знаками</b>")
     await notifier.notify_review("order0000001", "Книга готова")
     request, review = sent_messages(session)
-    assert request.chat_id == -100555 and review.chat_id == -100555
+    assert request.chat_id == -100555 and review.chat_id == 777           # в группе заявки, проверка с PDF у владельца
     assert request.text == "Заявка <b>с & знаками</b>" and request.parse_mode is None          # текст родителей показываем как есть
     assert [b.callback_data for b in request.reply_markup.inline_keyboard[0]] == ["req:ok:order0000001", "req:no:order0000001"]
     assert review.reply_markup.inline_keyboard[0][0].callback_data == "rev:ok:order0000001"
@@ -926,15 +926,15 @@ async def test_notifier_sends_the_cards_with_buttons_to_the_right_chats():
     await nobody.notify_review("order0000001", "x")
 
 
-async def test_review_files_go_to_the_orders_chat_and_fall_back_to_the_owner(tmp_path):
+async def test_review_files_go_to_the_owner_and_fall_back_to_the_orders_chat(tmp_path):
     from aiogram.exceptions import TelegramForbiddenError
     from aiogram.methods import SendDocument, SendMessage
 
-    class GroupGone(FakeSession):                                   # бота выгнали из группы заказов: туда не отправить ничего
+    class AdminGone(FakeSession):                                   # владелец заблокировал бота: ему не отправить ничего
         async def make_request(self, bot, method, timeout=None):
-            if isinstance(method, (SendMessage, SendDocument)) and int(method.chat_id) == -100555:
+            if isinstance(method, (SendMessage, SendDocument)) and int(method.chat_id) == 777:
                 self.calls.append(method)
-                raise TelegramForbiddenError(method=method, message="бота удалили из группы")
+                raise TelegramForbiddenError(method=method, message="бот заблокирован")
             return await super().make_request(bot, method, timeout)
 
     pdf = tmp_path / "a.pdf"
@@ -943,12 +943,46 @@ async def test_review_files_go_to_the_orders_chat_and_fall_back_to_the_owner(tmp
     notifier = TelegramNotifier(make_bot(ok), admin_chat_id=777, orders_chat_id=-100555)
     await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
     await notifier.notify_review("order0000001", "Книга готова")
-    assert [int(c.chat_id) for c in ok.calls] == [-100555, -100555]
-    gone = GroupGone()
+    assert [int(c.chat_id) for c in ok.calls] == [777, 777]
+    gone = AdminGone()
     notifier = TelegramNotifier(make_bot(gone), admin_chat_id=777, orders_chat_id=-100555)
     await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
     await notifier.notify_review("order0000001", "Книга готова")
-    assert [int(c.chat_id) for c in gone.calls] == [-100555, 777, -100555, 777]
+    assert [int(c.chat_id) for c in gone.calls] == [777, -100555, 777, -100555]
+
+
+async def test_group_gets_a_plain_report_when_the_book_waits_for_review(tmp_path):
+    env = await make_env(tmp_path)
+    try:
+        order_id = await make_request(env)
+        await env.service.accept_request(order_id)
+        await wait_status(env, order_id, "in_review")
+        assert any(order_id in t and "проверяет" in t for t in env.notifier.admin_texts)   # отчёт в группу: без файлов и кнопок
+        assert len(env.notifier.reviews) == 1 and len(env.notifier.admin_books) == 2       # кнопки и PDF идут через проверку владельца
+    finally:
+        await env.service.shutdown(); await env.client.close(); env.db.close()
+
+
+async def test_review_chat_id_gets_the_files_and_the_buttons(monkeypatch):
+    from aiogram.methods import SendDocument, SendMessage
+    from app.config import Settings
+
+    session = FakeSession()
+    notifier = TelegramNotifier(make_bot(session), 777, "", -100555, 4242)
+    pdf = Path(__file__)
+    await notifier.send_admin_book(pdf, "a.pdf", "Проверка")
+    await notifier.notify_review("order0000001", "Книга готова")
+    assert [int(c.chat_id) for c in session.calls if isinstance(c, (SendDocument, SendMessage))] == [4242, 4242]
+    # у человека из REVIEW_CHAT_ID есть кнопки проверки, но не права администратора
+    settings = Settings(admin_chat_id=777, review_chat_id=4242)
+    assert settings.can_review_id(4242) and not settings.is_admin_id(4242)
+    assert settings.can_review_id(777) and not settings.can_review_id(5)
+    assert not Settings(review_chat_id=-100555).can_review_id(-100555)         # группа не человек: кнопки только админам
+    monkeypatch.setenv("REVIEW_CHAT_ID", '"4242"')
+    assert Settings.from_env().review_chat_id == 4242
+    monkeypatch.setenv("REVIEW_CHAT_ID", "abc")
+    with pytest.raises(Exception, match="REVIEW_CHAT_ID"):
+        Settings.from_env()
 
 
 async def test_a_broken_chat_never_breaks_the_order(tmp_path):

@@ -75,6 +75,7 @@ class Settings:
     admin_chat_id: int | None = None
     extra_admin_ids: tuple[int, ...] = ()   # другие администраторы (ADMIN_EXTRA_IDS): те же права, что у владельца; уведомления идут в ADMIN_CHAT_ID и чат заказов
     orders_chat_id: int | None = None   # куда приходят карточки заказов (новый, готов); пусто — в чат владельца ADMIN_CHAT_ID
+    review_chat_id: int | None = None   # REVIEW_CHAT_ID: кому приходят PDF и кнопки проверки книги (правки); пусто — владельцу ADMIN_CHAT_ID
 
     text_provider: str = "mock"
     image_provider: str = "mock"
@@ -117,6 +118,10 @@ class Settings:
         """Владелец (ADMIN_CHAT_ID) или дополнительный администратор (ADMIN_EXTRA_IDS)."""
         return (self.admin_chat_id is not None and user_id == self.admin_chat_id) or user_id in self.extra_admin_ids
 
+    def can_review_id(self, user_id: int) -> bool:
+        """Нажимать кнопки проверки книги: администраторы и человек из REVIEW_CHAT_ID (его личный id; остальных прав админа у него нет)."""
+        return self.is_admin_id(user_id) or (self.review_chat_id is not None and self.review_chat_id > 0 and user_id == self.review_chat_id)
+
     @classmethod
     def from_env(cls, env_file: Path | None = ROOT / ".env") -> "Settings":
         if env_file is not None and Path(env_file).exists():
@@ -154,6 +159,15 @@ class Settings:
                     "Бот отвечает на команду /id числом чата, где её написали."
                 )
 
+        review_raw = _s("REVIEW_CHAT_ID").replace('"', "").replace("'", "").strip()
+        review_id: int | None = None
+        if review_raw:
+            try:
+                review_id = int(review_raw)
+            except ValueError:
+                raise ConfigError("В .env строка REVIEW_CHAT_ID должна быть числом (id человека, кому приходят книги на проверку). "
+                                  "Бот отвечает на команду /id числом чата, где её написали.")
+
         data_dir = Path(_s("DATA_DIR", "data"))
         if not data_dir.is_absolute():
             data_dir = ROOT / data_dir
@@ -163,6 +177,7 @@ class Settings:
             webapp_url=_webapp_url(),
             admin_chat_id=admin_id,
             orders_chat_id=orders_id,
+            review_chat_id=review_id,
             extra_admin_ids=tuple(extra_ids),
             text_provider=_s("TEXT_PROVIDER", "mock").lower() or "mock",
             image_provider=_s("IMAGE_PROVIDER", "mock").lower() or "mock",
