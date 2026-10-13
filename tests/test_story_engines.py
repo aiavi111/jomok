@@ -91,3 +91,23 @@ def test_the_writer_brainstorms_three_ideas_and_avoids_stale_endings():
     assert "Изюминки этой книги" in prompt
     asked = Profile.from_payload({**SAMPLE, "request": "Айдар играет в футбол"})
     assert "поворот" not in sw.pick_flavor(asked, random.Random(2))
+
+
+def test_the_sense_editor_retells_every_page_but_only_fixes_real_nonsense():
+    system = sw.SENSE_SYSTEM
+    assert '"retold"' in system and "Для КАЖДОЙ страницы" in system and "0–3 страницы" in system
+    assert "смена места НЕ бессмыслица" in system and "живот на солнце" in system          # переходы между страницами не добавляем
+    writer = sw.system_prompt(Profile.from_payload(SAMPLE))
+    assert "то, что происходит (упал, чихнул, перепутал" in writer and "перепиши" in writer
+
+
+def test_the_new_editor_answer_format_still_applies_fixes_and_ignores_the_retelling():
+    import json
+    from .test_sheet import _football
+    profile, data = _football({"request": "Артём играет на стадионе"})
+    story = sw.assemble(profile, data)
+    good = "Артём шёл по тропинке с другом. Они искали мяч и смеялись. — Вот он! — крикнул Артём. Друг радостно кивнул."
+    raw = json.dumps({"retold": [{"page": 1, "what": "герой идёт"}], "fixes": [{"page": 2, "text": good}]}, ensure_ascii=False)
+    fixed, applied = sw.apply_sense_fixes(profile, story, raw)
+    assert applied == [2] and fixed.pages[1].text == good                       # поле retold не мешает разбору
+    assert sw.apply_sense_fixes(profile, story, '{"retold": [], "fixes": []}')[1] == []
