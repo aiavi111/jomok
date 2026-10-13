@@ -60,3 +60,34 @@ def test_made_up_requirements_are_not_checked_when_parents_wrote_nothing():
     import pytest
     with pytest.raises(Exception):
         sw._check_requirements(asked, {"requirements": [{"what": "стадион", "en": "stadium"}]}, pages, "a red jacket")
+
+
+def test_flavor_gives_each_book_its_own_quirk_names_twist_and_places():
+    rng = random.Random(5)
+    flavors = {E.pick_flavor(with_story=True, rng=rng) for _ in range(100)}
+    assert len(flavors) >= 95                                                  # почти каждая книга получает свой набор
+    text = next(iter(flavors))
+    assert "привычка помощника" in text and "неожиданный поворот" in text and "необычные места" in text and "имя помощника выбери из" in text
+    assert "в requirements не пиши" in text
+    # с просьбой родителей сюжет их, поэтому поворот и места не навязываем: остаётся привычка и имя
+    asked = E.pick_flavor(with_story=False, rng=rng)
+    assert "привычка помощника" in asked and "имя помощника" in asked and "поворот" not in asked and "места" not in asked
+
+
+def test_flavor_names_come_from_the_helper_name_list():
+    from app import writer_data as D
+    known = {n.name for n in D.HELPER_NAMES}
+    text = E.pick_flavor(with_story=True, rng=random.Random(1))
+    names = text.split("имя помощника выбери из: ")[1].split(" (или своё")[0].split(", ")
+    assert len(names) == 6 and set(names) <= known
+
+
+def test_the_writer_brainstorms_three_ideas_and_avoids_stale_endings():
+    system = sw.system_prompt(Profile.from_payload(SAMPLE))
+    assert "три РАЗНЫЕ идеи" in system and '"ideas"' in system and "самую неожиданную" in system
+    assert "поделились печеньем" in system and "не общая фраза вроде «доброта помогает»" in system
+    profile = Profile.from_payload(SAMPLE)
+    prompt = sw.user_prompt(profile, E.ENGINES[0], None, sw.pick_flavor(profile, random.Random(2)))
+    assert "Изюминки этой книги" in prompt
+    asked = Profile.from_payload({**SAMPLE, "request": "Айдар играет в футбол"})
+    assert "поворот" not in sw.pick_flavor(asked, random.Random(2))
